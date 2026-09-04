@@ -979,8 +979,8 @@ local okLoad, resLoad = pcall(function()
     -- 2. If no local file found, download from GitHub or Singularity Server
     if code == "" then
         local urls = {
-            "https://raw.githubusercontent.com/projectsingularityv1-debug/Scripts.xinz/refs/heads/main/ui.lua",
-            "https://projectsingularity.online/raw/repos/191c9695-c9f9-4b5f-805f-d87e8e3b8fac/ui.lua"
+            "https://raw.githubusercontent.com/projectsingularityv1-debug/HYPER-LOADER/refs/heads/main/UI.main/ui.lua",
+            "https://raw.githubusercontent.com/projectsingularityv1-debug/HYPER-LOADER/refs/heads/main/UI.main/ui.lua"
         }
         
         for _, rawUrl in ipairs(urls) do

@@ -4,7 +4,7 @@ if getgenv().KT_LaundrySimulator_Loaded then
 end
 getgenv().KT_LaundrySimulator_Loaded = true
 
-local _rawUI = game:HttpGet("https://projectsingularity.online/raw/repos/191c9695-c9f9-4b5f-805f-d87e8e3b8fac/ui.lua")
+local _rawUI = game:HttpGet("https://raw.githubusercontent.com/projectsingularityv1-debug/HYPER-LOADER/refs/heads/main/UI.main/ui.lua")
 local _uiFn, _uiErr = loadstring(_rawUI)
 assert(_uiFn, "[K2NTA] UI load failed: " .. tostring(_uiErr))
 local Library = _uiFn()
