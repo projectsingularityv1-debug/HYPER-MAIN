@@ -1030,7 +1030,7 @@ local Window = Library:Window({
     },
     Title = "HYPER HUB",
     Desc = "Basketball Automation & Knit Suite",
-    Theme = "Amethyst",
+    Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift,
         Size = UDim2.fromOffset(570, 450)

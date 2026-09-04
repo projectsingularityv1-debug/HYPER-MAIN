@@ -6458,7 +6458,7 @@ local Window = Library:Window({
     },
     Title = "Lone Hub — Elite Edition",
     Desc = "Anti-Rubberband Speed, Advanced Aimbot & 2D/3D ESP",
-    Theme = "Amethyst",
+    Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift
     },

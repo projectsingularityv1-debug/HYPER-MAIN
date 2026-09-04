@@ -227,9 +227,7 @@ else
                 if fn then
                     local ok, lib = pcall(fn)
                     if ok and type(lib) == "table" and lib.Window then
-                        if typeof(writefile) == "function" then
-                            pcall(function() writefile("HYPER_Cache/ui.lua", src) end)
-                        end
+                        -- in-memory only
                         Library = lib
                         env.HYPER_UI = lib
                         env.Library = lib
@@ -295,7 +293,7 @@ local Window = Library:Window({
     Title = "HYPER HUB",
     Desc = "Murder Mystery 2",
     Icon = 115975178132422,
-    Theme = "Amethyst",
+    Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift,
         Size = WindowSize

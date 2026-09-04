@@ -66,9 +66,7 @@ else
                 if fn then
                     local ok, lib = pcall(fn)
                     if ok and type(lib) == "table" and lib.Window then
-                        if typeof(writefile) == "function" then
-                            pcall(function() writefile("HYPER_Cache/ui.lua", src) end)
-                        end
+                        -- in-memory only
                         Library = lib
                         env.HYPER_UI = lib
                         env.Library = lib
@@ -135,7 +133,7 @@ local Window = Library:Window({
     Desc = "Zero RPG Bypass",
     Icon = "112209635962758",
     Version = "1.0",
-    Theme = "Amethyst",
+    Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift,
         Size = WindowSize

@@ -6245,7 +6245,7 @@ local Window = Library:Window({
     },
     Title = "Singularity Aimbot & ESP Hub",
     Desc = "Bypassed Undetected Aimbot & ESP Suite",
-    Theme = "Amethyst",
+    Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift
     },
