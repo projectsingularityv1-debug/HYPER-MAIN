@@ -1,0 +1,1768 @@
+-- ==============================================================================
+--  Project XINZ X - Basketball Hub (Native Standalone Clean UI Edition)
+--  Clean Modern UI (No Emojis, Standardized Typography)
+--  Created by K2NTA ST | Project Singularity
+-- ==============================================================================
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = (pcall(function() return game:GetService("VirtualInputManager") end) and game:GetService("VirtualInputManager")) or nil
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Anti-Overlap
+local env = (getgenv and getgenv()) or _G
+local runId = tick()
+env.BasketballXINZ_RunID = runId
+
+if env.BasketballXINZ_Cleanup then
+    pcall(env.BasketballXINZ_Cleanup)
+end
+
+pcall(function()
+    for _, v in ipairs(CoreGui:GetChildren()) do
+        if v.Name == "SingularityHoopsHub" then v:Destroy() end
+    end
+    if LocalPlayer:FindFirstChild("PlayerGui") then
+        for _, v in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
+            if v.Name == "SingularityHoopsHub" then v:Destroy() end
+        end
+    end
+end)
+
+-- ── 1. ดึง Controllers ของเกมอย่างปลอดภัยและรองรับการรีแมพ (Dynamic Safe Loader) ────────
+local Knit = nil
+local function initKnit()
+    if not Knit then
+        pcall(function()
+            if ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Knit") then
+                local kClient = ReplicatedStorage.Packages.Knit:FindFirstChild("KnitClient") or ReplicatedStorage.Packages.Knit
+                Knit = require(kClient)
+            end
+        end)
+    end
+    return Knit
+end
+initKnit()
+
+local function getSafeController(name)
+    local ctrl = nil
+    initKnit()
+    if Knit and Knit.GetController then
+        pcall(function() ctrl = Knit.GetController(name) end)
+    end
+    if not ctrl and ReplicatedStorage:FindFirstChild("Controllers") then
+        local mod = ReplicatedStorage.Controllers:FindFirstChild(name)
+        if mod and mod:IsA("ModuleScript") then
+            pcall(function() ctrl = require(mod) end)
+        end
+    end
+    return ctrl
+end
+
+local BallController      = getSafeController("BallController")
+local DefenseController   = getSafeController("DefenseController")
+local AbilityController   = getSafeController("AbilityController")
+local AwakeningController = getSafeController("AwakeningController")
+local MovementController  = getSafeController("MovementController")
+local MatchController     = getSafeController("MatchController")
+local CourtController     = getSafeController("CourtController")
+
+-- ตัวแปรการตั้งค่า
+local Config = {
+    AutoGetBall = false,
+    GetBallMode = "TP",        -- "TP" (วาร์ปทันที) หรือ "Fly" (บิน)
+    FlySpeed = 55,
+    BallESP = false,           -- ระบบมองเห็นลูกบาสทะลุกำแพง
+    InstantShoot = true,       -- ระบบ Instant Shoot (จำลองคลิก + วาร์ปบอลลงห่วง 100%)
+    AutoShoot = false,         -- ยิงอัตโนมัติทันทีที่ได้บอล (Auto Shoot on possess)
+    AutoPerfectShoot = true,   -- ยิงตรงไหนก็ลง 100% (วาร์ปไปสูงเหนือห่วงและปล่อยดิ่งลงมา)
+    DoubleClickShoot = true,   -- ชู้ตจำลองคลิก 2 ครั้ง (Double Shoot)
+    InstantShootKey = "E",     -- ปุ่มลัดยิงทันที [E] หรือ [F]
+    ShootMode = "Instant",     -- "Instant" (วาร์ปไปสูงเหนือห่วงและทิ้งดิ่งลงมา)
+    ClickHoldTime = 0.12,      -- ระยะเวลากดคลิก/ชาร์จยิง (วินาที)
+    TeleportHeight = 9.0,      -- ความสูงเหนือห่วงบาส (Studs) สามารถปรับได้ตามใจชอบ
+    AutoFaceNet = false,       -- หันหน้าเข้าแป้นอัตโนมัติ
+    AutoBlock = false,
+    AutoBlockRange = 14,
+    AutoSteal = false,
+    AutoStealRange = 15,
+    StealCooldown = 0.25,
+    BlockCooldown = 0.6,
+    SpeedEnabled = false,
+    CustomSpeed = 28,
+    SpeedMethod = "Hybrid",    -- "Hybrid", "CFrame", "Velocity", "WalkSpeed"
+    InfJump = false,
+    Noclip = false,
+    AntiAFK = true
+}
+
+-- ── 2. ระบบตรวจสอบเพื่อนร่วมทีม (Team Check) ──────────────────
+local function isTeammate(player)
+    if not player or player == LocalPlayer then return true end
+    if LocalPlayer.Team and player.Team then return LocalPlayer.Team == player.Team end
+    if LocalPlayer.TeamColor and player.TeamColor then return LocalPlayer.TeamColor == player.TeamColor end
+    if LocalPlayer.Character and player.Character then
+        local myTeam = LocalPlayer.Character:GetAttribute("Team") or LocalPlayer:GetAttribute("Team")
+        local targetTeam = player.Character:GetAttribute("Team") or player:GetAttribute("Team")
+        if myTeam and targetTeam and myTeam == targetTeam then return true end
+    end
+    return false
+end
+
+-- ── 3. ป้องกันเกมรีเซ็ตค่า WalkSpeed (Metamethod Hook) ────────
+pcall(function()
+    if hookmetamethod and checkcaller and newcclosure then
+        local oldNewIndex
+        oldNewIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, prop, val)
+            if not checkcaller() and Config.SpeedEnabled and tostring(prop) == "WalkSpeed" and self:IsA("Humanoid") then
+                local char = LocalPlayer.Character
+                if char and self:IsDescendantOf(char) then
+                    return oldNewIndex(self, prop, Config.CustomSpeed)
+                end
+            end
+            return oldNewIndex(self, prop, val)
+        end))
+    end
+end)
+
+-- ── 4. ลูปการทำงานฟังก์ชันเกม (Game Loops & Multi-Layer Speed) ──
+
+-- 4.1 WalkSpeed & Movement Booster (RenderStepped)
+local renderConn = RunService.RenderStepped:Connect(function(dt)
+    if env.BasketballXINZ_RunID ~= runId then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    sethiddenproperty(LocalPlayer, "MaxSimulationRadius", 10000);
+    sethiddenproperty(LocalPlayer, "SimulationRadius", 10000);
+
+    if Config.SpeedEnabled then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+
+        if hum and hrp then
+            hum.WalkSpeed = Config.CustomSpeed
+
+            if hum.MoveDirection.Magnitude > 0 then
+                local moveDir = hum.MoveDirection
+                local extraSpeed = math.max(0, Config.CustomSpeed - 16)
+
+                if Config.SpeedMethod == "CFrame" then
+                    hrp.CFrame = hrp.CFrame + (moveDir * (extraSpeed * dt))
+                elseif Config.SpeedMethod == "Velocity" then
+                    local curY = (hrp.AssemblyLinearVelocity and hrp.AssemblyLinearVelocity.Y) or hrp.Velocity.Y
+                    local targetVel = Vector3.new(moveDir.X * Config.CustomSpeed, curY, moveDir.Z * Config.CustomSpeed)
+                    if hrp.AssemblyLinearVelocity then
+                        hrp.AssemblyLinearVelocity = targetVel
+                    else
+                        hrp.Velocity = targetVel
+                    end
+                elseif Config.SpeedMethod == "Hybrid" then
+                    hrp.CFrame = hrp.CFrame + (moveDir * (extraSpeed * dt * 0.4))
+                    local curY = (hrp.AssemblyLinearVelocity and hrp.AssemblyLinearVelocity.Y) or hrp.Velocity.Y
+                    local targetVel = Vector3.new(moveDir.X * (Config.CustomSpeed * 0.8), curY, moveDir.Z * (Config.CustomSpeed * 0.8))
+                    if hrp.AssemblyLinearVelocity then
+                        hrp.AssemblyLinearVelocity = targetVel
+                    else
+                        hrp.Velocity = targetVel
+                    end
+                end
+            end
+        end
+
+        if MovementController then
+            pcall(function()
+                if MovementController.SetSpeed then MovementController:SetSpeed(Config.CustomSpeed) end
+                if MovementController.Speed then MovementController.Speed = Config.CustomSpeed end
+                if MovementController.SprintSpeed then MovementController.SprintSpeed = Config.CustomSpeed end
+                if MovementController.BaseSpeed then MovementController.BaseSpeed = Config.CustomSpeed end
+            end)
+        end
+    end
+end)
+
+-- 4.2 Noclip (Stepped)
+local steppedConn = RunService.Stepped:Connect(function()
+    if env.BasketballXINZ_RunID ~= runId then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    if Config.Noclip then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
+
+    if Config.SpeedEnabled then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.WalkSpeed ~= Config.CustomSpeed then
+            hum.WalkSpeed = Config.CustomSpeed
+        end
+    end
+end)
+
+-- 4.3 Infinite Jump
+UserInputService.JumpRequest:Connect(function()
+    if Config.InfJump and LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
+-- ── 5. ระบบ UNIVERSAL INSTANT TP PERFECT SHOOT (ยิงปุ๊บลูกวาปเข้าแป้น 100%) ──
+-- ── 5. ระบบ UNIVERSAL PERFECT SHOOT & BALL TRAJECTORY ────────
+local function isAttachedToPlayer(item)
+    if not item or not item.Parent then return true end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character and item:IsDescendantOf(p.Character) then
+            return true
+        end
+    end
+    return false
+end
+
+local function findFreeBasketball()
+    -- 1. ตรวจสอบผ่าน BallController ของเกม (เฉพาะลูกที่หลุดออกจากตัวผู้เล่นแล้ว)
+    if BallController then
+        local b = BallController.Ball or BallController.CurrentBall or BallController._ball or BallController.BallInstance
+        if b and typeof(b) == "Instance" and b.Parent and not isAttachedToPlayer(b) then
+            if b:IsA("BasePart") then return b end
+            local p = b:FindFirstChildWhichIsA("BasePart")
+            if p then return p end
+        end
+        if BallController.GetBall then
+            local success, b2 = pcall(function() return BallController:GetBall() end)
+            if success and b2 and typeof(b2) == "Instance" and b2.Parent and not isAttachedToPlayer(b2) then
+                if b2:IsA("BasePart") then return b2 end
+                local p2 = b2:FindFirstChildWhichIsA("BasePart")
+                if p2 then return p2 end
+            end
+        end
+    end
+
+    -- 2. ตรวจสอบในโฟลเดอร์หลักของ Workspace
+    for _, folderName in ipairs({"Balls", "GameBalls", "Gameplay", "Court", "Visuals", "Debris", "Ignore"}) do
+        local folder = workspace:FindFirstChild(folderName)
+        if folder then
+            for _, item in ipairs(folder:GetChildren()) do
+                if item:IsA("BasePart") and item.Parent and item.Name:lower():find("ball") and not isAttachedToPlayer(item) then
+                    return item
+                end
+            end
+        end
+    end
+
+    -- 3. ตรวจสอบใน Workspace ชั้นแรก
+    for _, item in ipairs(workspace:GetChildren()) do
+        if item:IsA("BasePart") and item.Parent and item.Name:lower():find("ball") and not isAttachedToPlayer(item) then
+            return item
+        end
+    end
+
+    -- 4. ตรวจสอบจาก Descendants ทั้งหมดใน Workspace ที่ไม่ใช่ตัวละครของผู้เล่น
+    for _, item in ipairs(workspace:GetDescendants()) do
+        if item:IsA("BasePart") and item.Parent and not isAttachedToPlayer(item) then
+            local n = item.Name:lower()
+            local pn = item.Parent.Name:lower()
+            if (n:find("ball") or pn:find("ball")) and item.Size.Magnitude < 8 then
+                return item
+            end
+        end
+    end
+
+    return nil
+end
+
+local function findBasketball()
+    -- หาบอลทั่วไปรวมถึงในมือผู้เล่น (ใช้สำหรับตรวจจับการครองบอล)
+    local char = LocalPlayer.Character
+    if char then
+        for _, item in ipairs(char:GetChildren()) do
+            if item:IsA("BasePart") and item.Name:lower():find("ball") then return item end
+            if item:IsA("Tool") or item:IsA("Model") then
+                local p = item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart")
+                if p and (item.Name:lower():find("ball") or p.Name:lower():find("ball")) then return p end
+            end
+        end
+    end
+    return findFreeBasketball()
+end
+
+local hookedShoots = {}
+local guideBallToHoop
+local getNearestHoop
+
+local function refreshAndHookControllers()
+    BallController      = getSafeController("BallController") or BallController
+    DefenseController   = getSafeController("DefenseController") or DefenseController
+    AbilityController   = getSafeController("AbilityController") or AbilityController
+    AwakeningController = getSafeController("AwakeningController") or AwakeningController
+    MovementController  = getSafeController("MovementController") or MovementController
+    MatchController     = getSafeController("MatchController") or MatchController
+    CourtController     = getSafeController("CourtController") or CourtController
+end
+
+getNearestHoop = function()
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    refreshAndHookControllers()
+
+    -- 1. ดึงจาก BallController
+    if BallController then
+        if BallController.GetGoal then
+            local success, g = pcall(function() return BallController:GetGoal() end)
+            if success and g and g.Parent then
+                if g:IsA("BasePart") then return g end
+                local part = g:FindFirstChild("Rim") or g:FindFirstChild("Net") or g:FindFirstChild("Swish") or g:FindFirstChildWhichIsA("BasePart")
+                if part then return part end
+            end
+        end
+        if BallController.Goal and typeof(BallController.Goal) == "Instance" and BallController.Goal.Parent then
+            if BallController.Goal:IsA("BasePart") then return BallController.Goal end
+            local part = BallController.Goal:FindFirstChild("Rim") or BallController.Goal:FindFirstChild("Net") or BallController.Goal:FindFirstChildWhichIsA("BasePart")
+            if part then return part end
+        end
+    end
+
+    -- 2. ดึงจาก MatchController
+    if MatchController and MatchController.GetAttackingGoal then
+        local success, g = pcall(function() return MatchController:GetAttackingGoal() end)
+        if success and g and g.Parent then
+            if g:IsA("BasePart") then return g end
+            local part = g:FindFirstChild("Rim") or g:FindFirstChild("Net") or g:FindFirstChildWhichIsA("BasePart")
+            if part then return part end
+        end
+    end
+
+    -- 3. สแกนหาห่วงบาสที่ใกล้ที่สุด
+    local closestHoop = nil
+    local minDistance = math.huge
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Parent then
+            local name = obj.Name:lower()
+            if name:find("rim") or name:find("net") or name:find("hoop") or name:find("goal") or name:find("swish") or name:find("basket") or name == "ring" then
+                if obj.Position.Y > 4 then
+                    local dist = (myRoot.Position - obj.Position).Magnitude
+                    if dist < minDistance then
+                        minDistance = dist
+                        closestHoop = obj
+                    end
+                end
+            end
+        end
+    end
+    return closestHoop
+end
+
+local lastLocalShootTime = 0
+local isGuidingBall = false
+
+-- ฟังก์ชันนำวิถีลูกบาส: วาร์ปเฉพาะลูกบาสที่ปล่อยออกจากมือไปสูงเหนือแป้นบาสแล้วทิ้งดิ่งลงตาข่าย (ตัวละครอยู่นิ่ง 100%)
+guideBallToHoop = function(targetHoop)
+    if not (Config.InstantShoot or Config.AutoPerfectShoot) then return end
+    targetHoop = targetHoop or getNearestHoop()
+    if not targetHoop or not targetHoop.Parent then return end
+
+    if isGuidingBall and (tick() - lastLocalShootTime < 1.0) then return end
+    isGuidingBall = true
+    lastLocalShootTime = tick()
+
+    task.spawn(function()
+        local ball = nil
+        -- รอจนกว่าลูกบอลจะถูกปล่อยออกจากตัวผู้เล่นกลายเป็น Free Ball ใน Workspace (รอสูงสุด 2.5 วินาที)
+        for _ = 1, 150 do
+            ball = findFreeBasketball()
+            if ball and ball.Parent and not isAttachedToPlayer(ball) then break end
+            task.wait(0.015)
+        end
+
+        if ball and targetHoop and targetHoop.Parent then
+            local rimPos = targetHoop.Position
+            local spawnHeight = Config.TeleportHeight or 9.0
+
+            -- 1. วาร์ปเฉพาะ "ลูกบาส" ไปอยู่ตำแหน่งสูงเหนือห่วง (ไม่แตะต้องหรือขยับตัวละครของเราเด็ดขาด)
+            local aboveRimPos = rimPos + Vector3.new(0, spawnHeight, 0)
+            ball.CFrame = CFrame.new(aboveRimPos)
+
+            local downVelocity = Vector3.new(0, -38, 0)
+            if ball.AssemblyLinearVelocity then
+                ball.AssemblyLinearVelocity = downVelocity
+                ball.AssemblyAngularVelocity = Vector3.zero
+            else
+                ball.Velocity = downVelocity
+                ball.RotVelocity = Vector3.zero
+            end
+
+            -- 2. ไหลทิ้งดิ่งลงกลางตาข่ายจากที่สูงจนทะลุก้นห่วงอย่างสวยงามและสมบูรณ์แบบ
+            local dropOffsets = {
+                Vector3.new(0, spawnHeight * 0.75, 0), -- ระดับสูง 75%
+                Vector3.new(0, spawnHeight * 0.50, 0), -- ระดับสูง 50%
+                Vector3.new(0, spawnHeight * 0.25, 0), -- ระดับสูง 25%
+                Vector3.new(0, 2.0, 0),                -- เหนือปากห่วง
+                Vector3.new(0, 0.8, 0),                -- ปากห่วง
+                Vector3.new(0, 0.0, 0),                -- กลางห่วง
+                Vector3.new(0, -1.0, 0),               -- ในตาข่าย
+                Vector3.new(0, -2.4, 0)                -- ทะลุก้นตาข่าย
+            }
+
+            for _, offset in ipairs(dropOffsets) do
+                if not ball or not ball.Parent or not targetHoop.Parent then break end
+
+                ball.CFrame = CFrame.new(rimPos + offset)
+
+                if ball.AssemblyLinearVelocity then
+                    ball.AssemblyLinearVelocity = downVelocity
+                    ball.AssemblyAngularVelocity = Vector3.zero
+                else
+                    ball.Velocity = downVelocity
+                    ball.RotVelocity = Vector3.zero
+                end
+
+                task.wait(0.015)
+            end
+        end
+        isGuidingBall = false
+    end)
+end
+
+-- Hook BallController.Shoot เบื้องต้น
+refreshAndHookControllers()
+
+-- ระบบตรวจจับจังหวะชู้ตจาก Animation และ Re-bind เมื่อเกิดการรีแมพ/เริ่มรอบใหม่
+local function bindCharacter(char)
+    if not char then return end
+    isGuidingBall = false
+    lastLocalShootTime = 0
+    refreshAndHookControllers()
+
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then
+        local animator = hum:WaitForChild("Animator", 3) or hum
+        if animator then
+            animator.AnimationPlayed:Connect(function(track)
+                if not (Config.InstantShoot or Config.AutoPerfectShoot) then return end
+                local anim = track.Animation
+                local animName = (anim and anim.Name:lower()) or ""
+                if animName:find("shoot") or animName:find("shot") or animName:find("jumpshot") or animName:find("fadeaway") or animName:find("stepback") or animName:find("pullup") then
+                    task.spawn(function()
+                        task.wait(0.04)
+                        guideBallToHoop()
+                    end)
+                end
+            end)
+        end
+    end
+end
+
+if LocalPlayer.Character then
+    task.spawn(function() bindCharacter(LocalPlayer.Character) end)
+end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.spawn(function()
+        task.wait(0.15)
+        bindCharacter(char)
+        if Config.BallESP then
+            pcall(updateBallESP)
+        end
+    end)
+end)
+
+-- Listener ตรวจจับการยิงลูกบาสและรีเฟรชระบบตลอดเวลา
+task.spawn(function()
+    local hadBall = false
+    local refreshCounter = 0
+    while true do
+        task.wait(0.02)
+        if env.BasketballXINZ_RunID ~= runId then break end
+
+        refreshCounter = refreshCounter + 1
+        if refreshCounter >= 50 then
+            refreshCounter = 0
+            refreshAndHookControllers()
+        end
+
+        local hasBall = false
+        if BallController and BallController.LocalPlayerPossessesBall then
+            pcall(function() hasBall = BallController:LocalPlayerPossessesBall() end)
+        end
+
+        if hadBall and not hasBall and (Config.InstantShoot or Config.AutoPerfectShoot) then
+            task.spawn(function()
+                guideBallToHoop()
+            end)
+        end
+        hadBall = hasBall
+    end
+end)
+
+local function simulateMouseClick(holdTime)
+    holdTime = holdTime or Config.ClickHoldTime or 0.12
+    local mousePos = Vector2.new(400, 300)
+    pcall(function()
+        if workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize then
+            local vs = workspace.CurrentCamera.ViewportSize
+            mousePos = Vector2.new(vs.X / 2, vs.Y / 2)
+        elseif UserInputService and UserInputService.GetMouseLocation then
+            mousePos = UserInputService:GetMouseLocation()
+        end
+    end)
+
+    -- Step 1: ส่งสัญญาณกดคลิกลง (Mouse Button Down) ทุกช่องทางพร้อมกัน
+    pcall(function()
+        if VirtualInputManager then
+            VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, true, game, 0)
+        end
+    end)
+    pcall(function()
+        if mouse1press then
+            mouse1press()
+        end
+    end)
+    pcall(function()
+        if VirtualUser then
+            VirtualUser:CaptureController()
+            VirtualUser:Button1Down(Vector2.new(mousePos.X, mousePos.Y))
+        end
+    end)
+
+    -- Step 2: ค้างระยะเวลาการชาร์จยิง
+    task.wait(holdTime)
+
+    -- Step 3: ส่งสัญญาณปล่อยคลิก (Mouse Button Up) ทุกช่องทางพร้อมกัน
+    pcall(function()
+        if VirtualInputManager then
+            VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, false, game, 0)
+        end
+    end)
+    pcall(function()
+        if mouse1release then
+            mouse1release()
+        elseif mouse1click then
+            mouse1click()
+        end
+    end)
+    pcall(function()
+        if VirtualUser then
+            VirtualUser:Button1Up(Vector2.new(mousePos.X, mousePos.Y))
+        end
+    end)
+end
+
+local function executePerfectShot()
+    local hoop = getNearestHoop()
+    lastLocalShootTime = tick()
+
+    -- 1. หันหน้าเข้าหาแป้น (เฉพาะเมื่อผู้ใช้เปิดใช้งาน AutoFaceNet)
+    if Config.AutoFaceNet and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local myRoot = LocalPlayer.Character.HumanoidRootPart
+        if AbilityController and AbilityController.LookingAtNet then
+            pcall(function() AbilityController:LookingAtNet() end)
+        end
+        if hoop then
+            myRoot.CFrame = CFrame.new(myRoot.Position, Vector3.new(hoop.Position.X, myRoot.Position.Y, hoop.Position.Z))
+        end
+    end
+
+    -- 2. สั่งชู้ตด้วยการจำลองคลิกเมาส์
+    local hold = Config.ClickHoldTime or 0.12
+    simulateMouseClick(hold)
+    if Config.DoubleClickShoot then
+        task.wait(0.2)
+        simulateMouseClick(hold)
+    end
+
+    -- 3. หลังจากปล่อยคลิกชู้ตเรียบร้อยแล้ว ค่อยสั่งวาร์ปนำวิถีลูกบาสไปเหนือห่วงและทิ้งดิ่ง
+    if Config.AutoPerfectShoot then
+        guideBallToHoop(hoop)
+    end
+end
+
+-- 5.0 Auto Shoot on Possession (ยิงอัตโนมัติทันทีที่ได้บอล)
+task.spawn(function()
+    local isAutoShootingPossess = false
+    while true do
+        task.wait(0.05)
+        if env.BasketballXINZ_RunID ~= runId then break end
+        if Config.AutoShoot and not isAutoShootingPossess then
+            local hasBall = false
+            if BallController and BallController.LocalPlayerPossessesBall then
+                pcall(function() hasBall = BallController:LocalPlayerPossessesBall() end)
+            end
+            if hasBall and (tick() - lastLocalShootTime > 1.2) then
+                isAutoShootingPossess = true
+                task.wait(0.08)
+                executePerfectShot()
+                task.wait(0.8)
+                isAutoShootingPossess = false
+            end
+        end
+    end
+end)
+
+-- 5.1 Auto Get Ball (บินเก็บบอลเฉพาะตอนบอลว่าง ไม่บินตอนจังหวะชู้ต)
+task.spawn(function()
+    while true do
+        task.wait(0.03)
+        if env.BasketballXINZ_RunID ~= runId then break end
+        if Config.AutoGetBall and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            pcall(function()
+                if tick() - lastLocalShootTime < 2.5 then return end
+
+                local hasBall = BallController and BallController.LocalPlayerPossessesBall and BallController:LocalPlayerPossessesBall()
+                if not hasBall then
+                    local ballHolder = BallController and BallController.GetPlayerPossessingBall and BallController:GetPlayerPossessingBall()
+                    
+                    local isShootingState = false
+                    if BallController then
+                        if BallController.BallIFrameIsActive and BallController:BallIFrameIsActive() then
+                            isShootingState = true
+                        elseif BallController.BallTeamIFrameIsActive and BallController:BallTeamIFrameIsActive() then
+                            isShootingState = true
+                        elseif BallController.BallSpeedIsLessThan and not BallController:BallSpeedIsLessThan(35) then
+                            isShootingState = true
+                        end
+                    end
+
+                    if not ballHolder and not isShootingState then
+                        local ballPos = nil
+                        local ballObj = nil
+                        if BallController and BallController.GetServerBallPosition then
+                            ballPos = BallController:GetServerBallPosition()
+                        end
+
+                        if not ballPos or ballPos == Vector3.new(0, 0, 0) then
+                            for _, item in pairs(workspace:GetChildren()) do
+                                if item.Name:lower():find("ball") and item:IsA("BasePart") then
+                                    ballPos = item.Position
+                                    ballObj = item
+                                    break
+                                end
+                            end
+                        end
+
+                        if ballObj and (ballObj.AssemblyLinearVelocity or ballObj.Velocity) then
+                            local speed = (ballObj.AssemblyLinearVelocity or ballObj.Velocity).Magnitude
+                            if speed > 35 then return end
+                        end
+
+                        if ballPos then
+                            local myRoot = LocalPlayer.Character.HumanoidRootPart
+                            local dist = (myRoot.Position - ballPos).Magnitude
+                            if dist > 1.5 then
+                                if Config.GetBallMode == "Fly" then
+                                    local dir = (ballPos - myRoot.Position).Unit
+                                    myRoot.Velocity = dir * Config.FlySpeed
+                                    myRoot.CFrame = CFrame.new(myRoot.Position, Vector3.new(ballPos.X, myRoot.Position.Y, ballPos.Z))
+                                else
+                                    myRoot.CFrame = CFrame.new(ballPos.X, ballPos.Y + 1.2, ballPos.Z)
+                                    myRoot.Velocity = Vector3.new(0, 0, 0)
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- 5.2 Auto Steal
+local lastStealTime = 0
+task.spawn(function()
+    while true do
+        task.wait(0.05)
+        if env.BasketballXINZ_RunID ~= runId then break end
+        if Config.AutoSteal and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            pcall(function()
+                if tick() - lastStealTime < Config.StealCooldown then return end
+                local myPos = LocalPlayer.Character.HumanoidRootPart.Position
+
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and not isTeammate(player) and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                        local targetPos = player.Character.HumanoidRootPart.Position
+                        local dist = (myPos - targetPos).Magnitude
+
+                        if dist <= Config.AutoStealRange then
+                            local enemyHasBall = false
+                            if BallController and BallController.GetPlayerPossessingBall then
+                                enemyHasBall = (BallController:GetPlayerPossessingBall() == player)
+                            end
+
+                            if not enemyHasBall then
+                                for _, item in pairs(player.Character:GetDescendants()) do
+                                    if item.Name:lower():find("ball") and item:IsA("BasePart") then
+                                        enemyHasBall = true
+                                        break
+                                    end
+                                end
+                            end
+
+                            if enemyHasBall then
+                                lastStealTime = tick()
+                                if DefenseController and DefenseController.Input then
+                                    DefenseController:Input("Steal")
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- 5.3 Auto Block
+local lastBlockTime = 0
+task.spawn(function()
+    while true do
+        task.wait(0.04)
+        if env.BasketballXINZ_RunID ~= runId then break end
+        if Config.AutoBlock and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            pcall(function()
+                if tick() - lastBlockTime < Config.BlockCooldown then return end
+                local myPos = LocalPlayer.Character.HumanoidRootPart.Position
+
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and not isTeammate(player) and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                        local enemyChar = player.Character
+                        local targetPos = enemyChar.HumanoidRootPart.Position
+                        local dist = (myPos - targetPos).Magnitude
+
+                        if dist <= Config.AutoBlockRange then
+                            local isEnemyShooting = false
+                            local enemyHum = enemyChar:FindFirstChildOfClass("Humanoid")
+                            
+                            if enemyHum then
+                                local state = enemyHum:GetState()
+                                if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then
+                                    local enemyBall = false
+                                    if BallController and BallController.GetPlayerPossessingBall then
+                                        enemyBall = (BallController:GetPlayerPossessingBall() == player)
+                                    end
+                                    if not enemyBall then
+                                        for _, item in pairs(enemyChar:GetDescendants()) do
+                                            if item.Name:lower():find("ball") and item:IsA("BasePart") then
+                                                enemyBall = true
+                                                break
+                                            end
+                                        end
+                                    end
+                                    if enemyBall then isEnemyShooting = true end
+                                end
+                            end
+
+                            if isEnemyShooting then
+                                lastBlockTime = tick()
+                                local myHum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                                if myHum then myHum:ChangeState(Enum.HumanoidStateType.Jumping) end
+                                if DefenseController and DefenseController.Input then
+                                    DefenseController:Input("Block")
+                                    DefenseController:Input("Contest")
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- 5.4 Ball ESP
+local function updateBallESP()
+    for _, item in pairs(workspace:GetChildren()) do
+        if item.Name:lower():find("ball") and item:IsA("BasePart") then
+            local highlight = item:FindFirstChild("XINZ_BallHighlight")
+            local billboard = item:FindFirstChild("XINZ_BallBillboard")
+
+            if Config.BallESP then
+                if not highlight then
+                    highlight = Instance.new("Highlight")
+                    highlight.Name = "XINZ_BallHighlight"
+                    highlight.FillColor = Color3.fromRGB(255, 140, 0)
+                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    highlight.FillTransparency = 0.35
+                    highlight.OutlineTransparency = 0
+                    highlight.Parent = item
+                end
+
+                if not billboard then
+                    billboard = Instance.new("BillboardGui")
+                    billboard.Name = "XINZ_BallBillboard"
+                    billboard.Size = UDim2.new(0, 120, 0, 30)
+                    billboard.StudsOffset = Vector3.new(0, 2, 0)
+                    billboard.AlwaysOnTop = true
+                    billboard.Parent = item
+
+                    local label = Instance.new("TextLabel", billboard)
+                    label.Name = "Label"
+                    label.Size = UDim2.new(1, 0, 1, 0)
+                    label.BackgroundTransparency = 1
+                    label.Text = "Ball"
+                    label.TextColor3 = Color3.fromRGB(255, 200, 0)
+                    label.Font = Enum.Font.GothamBold
+                    label.TextSize = 11
+                    label.TextStrokeTransparency = 0.3
+                end
+
+                if billboard and billboard:FindFirstChild("Label") and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local dist = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - item.Position).Magnitude)
+                    billboard.Label.Text = string.format("Ball [%dm]", dist)
+                end
+            else
+                if highlight then highlight:Destroy() end
+                if billboard then billboard:Destroy() end
+            end
+        end
+    end
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if env.BasketballXINZ_RunID ~= runId then break end
+        if Config.BallESP then
+            pcall(updateBallESP)
+        end
+    end
+end)
+
+-- ── 6. NATIVE STANDALONE UI ENGINE (Clean Typography & Modern Minimal) ──
+local Library = {}
+
+function Library:Window(options)
+    options = options or {}
+    local Title = options.Title or "Project XINZ X - Hoops Hub"
+    local Desc = options.Desc or ""
+    local Profile = options.Profile or {}
+    local ProfileUsername = Profile.Username or LocalPlayer.DisplayName
+    local ProfileEmail = Profile.Email or ("UID: " .. tostring(LocalPlayer.UserId))
+    local ProfileAvatar = Profile.AvatarUrl or ("rbxthumb://type=AvatarHeadShot&id=" .. tostring(LocalPlayer.UserId) .. "&w=150&h=150")
+    local ToggleKey = (options.Config and options.Config.Keybind) or Enum.KeyCode.RightShift
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "SingularityHoopsHub"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    pcall(function()
+        if syn and syn.protect_gui then
+            syn.protect_gui(ScreenGui)
+            ScreenGui.Parent = CoreGui
+        elseif gethui then
+            ScreenGui.Parent = gethui()
+        else
+            ScreenGui.Parent = CoreGui
+        end
+    end)
+    if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Name = "MainFrame"
+    MainFrame.Size = UDim2.fromOffset(590, 430)
+    MainFrame.Position = UDim2.new(0.5, -295, 0.5, -215)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(13, 13, 16)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.ClipsDescendants = true
+    MainFrame.Parent = ScreenGui
+
+    local MainCorner = Instance.new("UICorner", MainFrame)
+    MainCorner.CornerRadius = UDim.new(0, 10)
+
+    local MainStroke = Instance.new("UIStroke", MainFrame)
+    MainStroke.Color = Color3.fromRGB(55, 35, 18)
+    MainStroke.Thickness = 1.2
+
+    -- Dragging System
+    local dragging, dragInput, dragStart, startPos
+    MainFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = MainFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    MainFrame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+
+    -- Left Sidebar
+    local Sidebar = Instance.new("Frame", MainFrame)
+    Sidebar.Name = "Sidebar"
+    Sidebar.Size = UDim2.new(0, 175, 1, 0)
+    Sidebar.BackgroundColor3 = Color3.fromRGB(9, 9, 12)
+    Sidebar.BorderSizePixel = 0
+    local SidebarCorner = Instance.new("UICorner", Sidebar)
+    SidebarCorner.CornerRadius = UDim.new(0, 10)
+
+    -- Profile Box
+    local ProfileFrame = Instance.new("Frame", Sidebar)
+    ProfileFrame.Size = UDim2.new(1, -16, 0, 50)
+    ProfileFrame.Position = UDim2.new(0, 8, 0, 8)
+    ProfileFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+    local PCorner = Instance.new("UICorner", ProfileFrame)
+    PCorner.CornerRadius = UDim.new(0, 8)
+
+    local AvatarImg = Instance.new("ImageLabel", ProfileFrame)
+    AvatarImg.Size = UDim2.fromOffset(36, 36)
+    AvatarImg.Position = UDim2.new(0, 7, 0.5, -18)
+    AvatarImg.BackgroundColor3 = Color3.fromRGB(28, 24, 20)
+    AvatarImg.Image = ProfileAvatar
+    local ACorner = Instance.new("UICorner", AvatarImg)
+    ACorner.CornerRadius = UDim.new(1, 0)
+
+    local UserLabel = Instance.new("TextLabel", ProfileFrame)
+    UserLabel.Size = UDim2.new(1, -52, 0, 16)
+    UserLabel.Position = UDim2.new(0, 48, 0, 9)
+    UserLabel.BackgroundTransparency = 1
+    UserLabel.Font = Enum.Font.GothamBold
+    UserLabel.TextSize = 12
+    UserLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    UserLabel.TextXAlignment = Enum.TextXAlignment.Left
+    UserLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    UserLabel.Text = ProfileUsername
+
+    local UidLabel = Instance.new("TextLabel", ProfileFrame)
+    UidLabel.Size = UDim2.new(1, -52, 0, 14)
+    UidLabel.Position = UDim2.new(0, 48, 0, 26)
+    UidLabel.BackgroundTransparency = 1
+    UidLabel.Font = Enum.Font.GothamMedium
+    UidLabel.TextSize = 10
+    UidLabel.TextColor3 = Color3.fromRGB(160, 150, 140)
+    UidLabel.TextXAlignment = Enum.TextXAlignment.Left
+    UidLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    UidLabel.Text = ProfileEmail
+
+    -- Tab Buttons
+    local TabButtonContainer = Instance.new("ScrollingFrame", Sidebar)
+    TabButtonContainer.Size = UDim2.new(1, -12, 1, -70)
+    TabButtonContainer.Position = UDim2.new(0, 6, 0, 64)
+    TabButtonContainer.BackgroundTransparency = 1
+    TabButtonContainer.ScrollBarThickness = 2
+    TabButtonContainer.BorderSizePixel = 0
+    local TabListLayout = Instance.new("UIListLayout", TabButtonContainer)
+    TabListLayout.Padding = UDim.new(0, 4)
+    TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+    -- Header
+    local Header = Instance.new("Frame", MainFrame)
+    Header.Size = UDim2.new(1, -185, 0, 44)
+    Header.Position = UDim2.new(0, 180, 0, 0)
+    Header.BackgroundTransparency = 1
+
+    local TitleLabel = Instance.new("TextLabel", Header)
+    TitleLabel.Size = UDim2.new(1, -40, 1, 0)
+    TitleLabel.Position = UDim2.new(0, 10, 0, 0)
+    TitleLabel.BackgroundTransparency = 1
+    TitleLabel.Font = Enum.Font.GothamBold
+    TitleLabel.TextSize = 14
+    TitleLabel.TextColor3 = Color3.fromRGB(245, 245, 250)
+    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TitleLabel.Text = Title .. "  <font color='rgb(255,140,25)'>•</font> <font color='rgb(175,160,150)' size='11'>" .. Desc .. "</font>"
+    TitleLabel.RichText = true
+
+    local CloseBtn = Instance.new("TextButton", Header)
+    CloseBtn.Size = UDim2.fromOffset(26, 26)
+    CloseBtn.Position = UDim2.new(1, -34, 0.5, -13)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(25, 20, 18)
+    CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.fromRGB(220, 205, 195)
+    CloseBtn.TextSize = 12
+    local CBCorner = Instance.new("UICorner", CloseBtn)
+    CBCorner.CornerRadius = UDim.new(0, 6)
+    CloseBtn.MouseButton1Click:Connect(function()
+        MainFrame.Visible = false
+    end)
+
+    -- Page Container
+    local PageContainer = Instance.new("Frame", MainFrame)
+    PageContainer.Size = UDim2.new(1, -190, 1, -54)
+    PageContainer.Position = UDim2.new(0, 180, 0, 48)
+    PageContainer.BackgroundTransparency = 1
+
+    -- Notifications
+    local NotifContainer = Instance.new("Frame", ScreenGui)
+    NotifContainer.Size = UDim2.new(0, 260, 1, -20)
+    NotifContainer.Position = UDim2.new(1, -270, 0, 10)
+    NotifContainer.BackgroundTransparency = 1
+    local NotifLayout = Instance.new("UIListLayout", NotifContainer)
+    NotifLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    NotifLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    NotifLayout.Padding = UDim.new(0, 6)
+
+    local WindowObj = {}
+    local tabs = {}
+
+    function WindowObj:Notify(nOpt)
+        nOpt = nOpt or {}
+        local nTitle = nOpt.Title or "Notification"
+        local nDesc = nOpt.Desc or ""
+        local nTime = nOpt.Time or 3
+
+        local Card = Instance.new("Frame", NotifContainer)
+        Card.Size = UDim2.new(1, 0, 0, 52)
+        Card.BackgroundColor3 = Color3.fromRGB(18, 16, 14)
+        local CCorner = Instance.new("UICorner", Card)
+        CCorner.CornerRadius = UDim.new(0, 8)
+        local CStroke = Instance.new("UIStroke", Card)
+        CStroke.Color = Color3.fromRGB(255, 140, 25)
+        CStroke.Thickness = 1
+
+        local Txt1 = Instance.new("TextLabel", Card)
+        Txt1.Size = UDim2.new(1, -16, 0, 16)
+        Txt1.Position = UDim2.new(0, 10, 0, 6)
+        Txt1.BackgroundTransparency = 1
+        Txt1.Font = Enum.Font.GothamBold
+        Txt1.TextSize = 12
+        Txt1.TextColor3 = Color3.fromRGB(255, 140, 25)
+        Txt1.TextXAlignment = Enum.TextXAlignment.Left
+        Txt1.Text = nTitle
+
+        local Txt2 = Instance.new("TextLabel", Card)
+        Txt2.Size = UDim2.new(1, -16, 0, 22)
+        Txt2.Position = UDim2.new(0, 10, 0, 24)
+        Txt2.BackgroundTransparency = 1
+        Txt2.Font = Enum.Font.GothamMedium
+        Txt2.TextSize = 11
+        Txt2.TextColor3 = Color3.fromRGB(230, 225, 220)
+        Txt2.TextXAlignment = Enum.TextXAlignment.Left
+        Txt2.TextTruncate = Enum.TextTruncate.AtEnd
+        Txt2.Text = nDesc
+
+        task.spawn(function()
+            task.wait(nTime)
+            TweenService:Create(Card, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
+            TweenService:Create(Txt1, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
+            TweenService:Create(Txt2, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
+            TweenService:Create(CStroke, TweenInfo.new(0.3), {Transparency = 1}):Play()
+            task.wait(0.35)
+            Card:Destroy()
+        end)
+    end
+
+    function WindowObj:Tab(tOpt)
+        tOpt = tOpt or {}
+        local tTitle = tOpt.Title or "Tab"
+
+        local TabBtn = Instance.new("TextButton", TabButtonContainer)
+        TabBtn.Size = UDim2.new(1, 0, 0, 32)
+        TabBtn.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
+        TabBtn.BackgroundTransparency = 1
+        TabBtn.Font = Enum.Font.GothamMedium
+        TabBtn.Text = "  " .. tTitle
+        TabBtn.TextColor3 = Color3.fromRGB(160, 150, 140)
+        TabBtn.TextSize = 12
+        TabBtn.TextXAlignment = Enum.TextXAlignment.Left
+        local TBCorner = Instance.new("UICorner", TabBtn)
+        TBCorner.CornerRadius = UDim.new(0, 6)
+
+        local Page = Instance.new("ScrollingFrame", PageContainer)
+        Page.Size = UDim2.new(1, 0, 1, 0)
+        Page.BackgroundTransparency = 1
+        Page.ScrollBarThickness = 3
+        Page.ScrollBarImageColor3 = Color3.fromRGB(60, 45, 30)
+        Page.BorderSizePixel = 0
+        Page.Visible = false
+        local PLayout = Instance.new("UIListLayout", Page)
+        PLayout.Padding = UDim.new(0, 6)
+        PLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+        local function switchTab()
+            for _, t in ipairs(tabs) do
+                t.Page.Visible = false
+                t.Btn.TextColor3 = Color3.fromRGB(160, 150, 140)
+                t.Btn.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
+                t.Btn.BackgroundTransparency = 1
+            end
+            Page.Visible = true
+            TabBtn.TextColor3 = Color3.fromRGB(255, 140, 25)
+            TabBtn.BackgroundColor3 = Color3.fromRGB(32, 20, 12)
+            TabBtn.BackgroundTransparency = 0
+        end
+
+        TabBtn.MouseButton1Click:Connect(switchTab)
+
+        local TabObj = { Page = Page, Btn = TabBtn }
+        table.insert(tabs, TabObj)
+
+        if #tabs == 1 then switchTab() end
+
+        function TabObj:Section(sOpt)
+            local sTitle = sOpt.Title or "Section"
+            local SecFrame = Instance.new("Frame", Page)
+            SecFrame.Size = UDim2.new(1, -6, 0, 22)
+            SecFrame.BackgroundTransparency = 1
+
+            local SecLbl = Instance.new("TextLabel", SecFrame)
+            SecLbl.Size = UDim2.new(1, 0, 1, 0)
+            SecLbl.BackgroundTransparency = 1
+            SecLbl.Font = Enum.Font.GothamBold
+            SecLbl.TextSize = 11
+            SecLbl.TextColor3 = Color3.fromRGB(255, 140, 25)
+            SecLbl.TextXAlignment = Enum.TextXAlignment.Left
+            SecLbl.Text = string.upper(sTitle)
+        end
+
+        function TabObj:Toggle(togOpt)
+            togOpt = togOpt or {}
+            local tgTitle = togOpt.Title or "Toggle"
+            local tgDesc = togOpt.Desc or ""
+            local tgVal = (togOpt.Value == true or togOpt.Default == true)
+            local tgCallback = togOpt.Callback or function() end
+
+            local Row = Instance.new("Frame", Page)
+            Row.Size = UDim2.new(1, -6, 0, tgDesc ~= "" and 42 or 34)
+            Row.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
+            local RCorner = Instance.new("UICorner", Row)
+            RCorner.CornerRadius = UDim.new(0, 6)
+
+            local TLbl = Instance.new("TextLabel", Row)
+            TLbl.Size = UDim2.new(1, -60, 0, 18)
+            TLbl.Position = UDim2.new(0, 10, 0, tgDesc ~= "" and 4 or 8)
+            TLbl.BackgroundTransparency = 1
+            TLbl.Font = Enum.Font.GothamMedium
+            TLbl.TextSize = 12
+            TLbl.TextColor3 = Color3.fromRGB(245, 245, 250)
+            TLbl.TextXAlignment = Enum.TextXAlignment.Left
+            TLbl.Text = tgTitle
+
+            if tgDesc ~= "" then
+                local DLbl = Instance.new("TextLabel", Row)
+                DLbl.Size = UDim2.new(1, -60, 0, 14)
+                DLbl.Position = UDim2.new(0, 10, 0, 22)
+                DLbl.BackgroundTransparency = 1
+                DLbl.Font = Enum.Font.Gotham
+                DLbl.TextSize = 10
+                DLbl.TextColor3 = Color3.fromRGB(150, 140, 130)
+                DLbl.TextXAlignment = Enum.TextXAlignment.Left
+                DLbl.TextTruncate = Enum.TextTruncate.AtEnd
+                DLbl.Text = tgDesc
+            end
+
+            local Switch = Instance.new("TextButton", Row)
+            Switch.Size = UDim2.fromOffset(40, 20)
+            Switch.Position = UDim2.new(1, -48, 0.5, -10)
+            Switch.BackgroundColor3 = tgVal and Color3.fromRGB(255, 140, 25) or Color3.fromRGB(36, 36, 42)
+            Switch.Text = ""
+            local SCorner = Instance.new("UICorner", Switch)
+            SCorner.CornerRadius = UDim.new(1, 0)
+
+            local Dot = Instance.new("Frame", Switch)
+            Dot.Size = UDim2.fromOffset(16, 16)
+            Dot.Position = tgVal and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+            Dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            local DCorner = Instance.new("UICorner", Dot)
+            DCorner.CornerRadius = UDim.new(1, 0)
+
+            local function updateToggle(newVal)
+                tgVal = newVal
+                TweenService:Create(Switch, TweenInfo.new(0.2), {BackgroundColor3 = tgVal and Color3.fromRGB(255, 140, 25) or Color3.fromRGB(36, 36, 42)}):Play()
+                TweenService:Create(Dot, TweenInfo.new(0.2), {Position = tgVal and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
+                pcall(tgCallback, tgVal)
+            end
+
+            Switch.MouseButton1Click:Connect(function() updateToggle(not tgVal) end)
+            local ClickArea = Instance.new("TextButton", Row)
+            ClickArea.Size = UDim2.new(1, -50, 1, 0)
+            ClickArea.BackgroundTransparency = 1
+            ClickArea.Text = ""
+            ClickArea.MouseButton1Click:Connect(function() updateToggle(not tgVal) end)
+        end
+
+        function TabObj:Slider(slOpt)
+            slOpt = slOpt or {}
+            local sTitle = slOpt.Title or "Slider"
+            local sMin = slOpt.Min or 0
+            local sMax = slOpt.Max or 100
+            local sDefault = slOpt.Default or slOpt.Value or sMin
+            local sCallback = slOpt.Callback or function() end
+            local curVal = sDefault
+
+            local Row = Instance.new("Frame", Page)
+            Row.Size = UDim2.new(1, -6, 0, 48)
+            Row.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
+            local RCorner = Instance.new("UICorner", Row)
+            RCorner.CornerRadius = UDim.new(0, 6)
+
+            local TLbl = Instance.new("TextLabel", Row)
+            TLbl.Size = UDim2.new(1, -70, 0, 16)
+            TLbl.Position = UDim2.new(0, 10, 0, 6)
+            TLbl.BackgroundTransparency = 1
+            TLbl.Font = Enum.Font.GothamMedium
+            TLbl.TextSize = 12
+            TLbl.TextColor3 = Color3.fromRGB(245, 245, 250)
+            TLbl.TextXAlignment = Enum.TextXAlignment.Left
+            TLbl.Text = sTitle
+
+            local ValLbl = Instance.new("TextLabel", Row)
+            ValLbl.Size = UDim2.new(0, 50, 0, 16)
+            ValLbl.Position = UDim2.new(1, -60, 0, 6)
+            ValLbl.BackgroundTransparency = 1
+            ValLbl.Font = Enum.Font.GothamBold
+            ValLbl.TextSize = 12
+            ValLbl.TextColor3 = Color3.fromRGB(255, 140, 25)
+            ValLbl.TextXAlignment = Enum.TextXAlignment.Right
+            ValLbl.Text = tostring(math.floor(curVal))
+
+            local Bar = Instance.new("Frame", Row)
+            Bar.Size = UDim2.new(1, -20, 0, 6)
+            Bar.Position = UDim2.new(0, 10, 0, 30)
+            Bar.BackgroundColor3 = Color3.fromRGB(30, 28, 26)
+            local BCorner = Instance.new("UICorner", Bar)
+            BCorner.CornerRadius = UDim.new(1, 0)
+
+            local pct = math.clamp((curVal - sMin) / (sMax - sMin), 0, 1)
+            local Fill = Instance.new("Frame", Bar)
+            Fill.Size = UDim2.new(pct, 0, 1, 0)
+            Fill.BackgroundColor3 = Color3.fromRGB(255, 140, 25)
+            local FCorner = Instance.new("UICorner", Fill)
+            FCorner.CornerRadius = UDim.new(1, 0)
+
+            local sliding = false
+            local function moveSlider(input)
+                local posX = input.Position.X - Bar.AbsolutePosition.X
+                local percent = math.clamp(posX / Bar.AbsoluteSize.X, 0, 1)
+                Fill.Size = UDim2.new(percent, 0, 1, 0)
+                curVal = math.floor(sMin + ((sMax - sMin) * percent))
+                ValLbl.Text = tostring(curVal)
+                pcall(sCallback, curVal)
+            end
+
+            Bar.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    sliding = true
+                    moveSlider(input)
+                end
+            end)
+            UserInputService.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    sliding = false
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(input)
+                if sliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    moveSlider(input)
+                end
+            end)
+        end
+
+        function TabObj:Button(bOpt)
+            bOpt = bOpt or {}
+            local bTitle = bOpt.Title or "Button"
+            local bDesc = bOpt.Desc or ""
+            local bCallback = bOpt.Callback or function() end
+
+            local BtnRow = Instance.new("TextButton", Page)
+            BtnRow.Size = UDim2.new(1, -6, 0, bDesc ~= "" and 42 or 34)
+            BtnRow.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
+            BtnRow.AutoButtonColor = false
+            BtnRow.Text = ""
+            local BRCorner = Instance.new("UICorner", BtnRow)
+            BRCorner.CornerRadius = UDim.new(0, 6)
+
+            local TLbl = Instance.new("TextLabel", BtnRow)
+            TLbl.Size = UDim2.new(1, -20, 0, 18)
+            TLbl.Position = UDim2.new(0, 10, 0, bDesc ~= "" and 4 or 8)
+            TLbl.BackgroundTransparency = 1
+            TLbl.Font = Enum.Font.GothamMedium
+            TLbl.TextSize = 12
+            TLbl.TextColor3 = Color3.fromRGB(245, 245, 250)
+            TLbl.TextXAlignment = Enum.TextXAlignment.Left
+            TLbl.Text = bTitle
+
+            if bDesc ~= "" then
+                local DLbl = Instance.new("TextLabel", BtnRow)
+                DLbl.Size = UDim2.new(1, -20, 0, 14)
+                DLbl.Position = UDim2.new(0, 10, 0, 22)
+                DLbl.BackgroundTransparency = 1
+                DLbl.Font = Enum.Font.Gotham
+                DLbl.TextSize = 10
+                DLbl.TextColor3 = Color3.fromRGB(150, 140, 130)
+                DLbl.TextXAlignment = Enum.TextXAlignment.Left
+                DLbl.TextTruncate = Enum.TextTruncate.AtEnd
+                DLbl.Text = bDesc
+            end
+
+            BtnRow.MouseButton1Click:Connect(function()
+                TweenService:Create(BtnRow, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(38, 28, 18)}):Play()
+                delay(0.1, function()
+                    TweenService:Create(BtnRow, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(18, 18, 23)}):Play()
+                end)
+                pcall(bCallback)
+            end)
+
+            return {
+                SetTitle = function(self, newText) TLbl.Text = newText end
+            }
+        end
+
+        function TabObj:Dropdown(dOpt)
+            dOpt = dOpt or {}
+            local dTitle = dOpt.Title or "Dropdown"
+            local dList = dOpt.List or {}
+            local dCur = dOpt.Default or dOpt.Value or dList[1] or ""
+            local dCallback = dOpt.Callback or function() end
+
+            local DropFrame = Instance.new("Frame", Page)
+            DropFrame.Size = UDim2.new(1, -6, 0, 48)
+            DropFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
+            DropFrame.ClipsDescendants = true
+            local DCorner = Instance.new("UICorner", DropFrame)
+            DCorner.CornerRadius = UDim.new(0, 6)
+
+            local TLbl = Instance.new("TextLabel", DropFrame)
+            TLbl.Size = UDim2.new(1, -20, 0, 16)
+            TLbl.Position = UDim2.new(0, 10, 0, 6)
+            TLbl.BackgroundTransparency = 1
+            TLbl.Font = Enum.Font.GothamMedium
+            TLbl.TextSize = 12
+            TLbl.TextColor3 = Color3.fromRGB(245, 245, 250)
+            TLbl.TextXAlignment = Enum.TextXAlignment.Left
+            TLbl.Text = dTitle
+
+            local SelectBtn = Instance.new("TextButton", DropFrame)
+            SelectBtn.Size = UDim2.new(1, -20, 0, 20)
+            SelectBtn.Position = UDim2.new(0, 10, 0, 24)
+            SelectBtn.BackgroundColor3 = Color3.fromRGB(26, 22, 20)
+            SelectBtn.Font = Enum.Font.GothamMedium
+            SelectBtn.Text = "  " .. tostring(dCur) .. "  v"
+            SelectBtn.TextColor3 = Color3.fromRGB(255, 140, 25)
+            SelectBtn.TextSize = 11
+            SelectBtn.TextXAlignment = Enum.TextXAlignment.Left
+            local SBCorner = Instance.new("UICorner", SelectBtn)
+            SBCorner.CornerRadius = UDim.new(0, 4)
+
+            local DropListFrame = Instance.new("ScrollingFrame", DropFrame)
+            DropListFrame.Size = UDim2.new(1, -20, 0, 100)
+            DropListFrame.Position = UDim2.new(0, 10, 0, 48)
+            DropListFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
+            DropListFrame.ScrollBarThickness = 2
+            local DListLayout = Instance.new("UIListLayout", DropListFrame)
+            DListLayout.Padding = UDim.new(0, 2)
+
+            local isOpen = false
+            local function refreshOptions()
+                for _, child in ipairs(DropListFrame:GetChildren()) do
+                    if child:IsA("TextButton") then child:Destroy() end
+                end
+                for _, item in ipairs(dList) do
+                    local ItemBtn = Instance.new("TextButton", DropListFrame)
+                    ItemBtn.Size = UDim2.new(1, 0, 0, 22)
+                    ItemBtn.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+                    ItemBtn.Font = Enum.Font.Gotham
+                    ItemBtn.Text = " " .. tostring(item)
+                    ItemBtn.TextColor3 = Color3.fromRGB(210, 205, 200)
+                    ItemBtn.TextSize = 11
+                    ItemBtn.TextXAlignment = Enum.TextXAlignment.Left
+                    ItemBtn.MouseButton1Click:Connect(function()
+                        dCur = item
+                        SelectBtn.Text = "  " .. tostring(dCur) .. "  v"
+                        isOpen = false
+                        TweenService:Create(DropFrame, TweenInfo.new(0.2), {Size = UDim2.new(1, -6, 0, 48)}):Play()
+                        pcall(dCallback, dCur)
+                    end)
+                end
+            end
+
+            SelectBtn.MouseButton1Click:Connect(function()
+                isOpen = not isOpen
+                if isOpen then
+                    refreshOptions()
+                    TweenService:Create(DropFrame, TweenInfo.new(0.2), {Size = UDim2.new(1, -6, 0, 154)}):Play()
+                else
+                    TweenService:Create(DropFrame, TweenInfo.new(0.2), {Size = UDim2.new(1, -6, 0, 48)}):Play()
+                end
+            end)
+        end
+
+        function TabObj:Label(lOpt)
+            lOpt = lOpt or {}
+            local lTitle = lOpt.Title or ""
+            local lDesc = lOpt.Desc or ""
+
+            local Row = Instance.new("Frame", Page)
+            Row.Size = UDim2.new(1, -6, 0, lDesc ~= "" and 44 or 28)
+            Row.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
+            local RCorner = Instance.new("UICorner", Row)
+            RCorner.CornerRadius = UDim.new(0, 6)
+
+            local TLbl = Instance.new("TextLabel", Row)
+            TLbl.Size = UDim2.new(1, -20, 0, 16)
+            TLbl.Position = UDim2.new(0, 10, 0, 6)
+            TLbl.BackgroundTransparency = 1
+            TLbl.Font = Enum.Font.GothamBold
+            TLbl.TextSize = 11
+            TLbl.TextColor3 = Color3.fromRGB(245, 245, 250)
+            TLbl.TextXAlignment = Enum.TextXAlignment.Left
+            TLbl.Text = lTitle
+
+            if lDesc ~= "" then
+                local DLbl = Instance.new("TextLabel", Row)
+                DLbl.Size = UDim2.new(1, -20, 0, 16)
+                DLbl.Position = UDim2.new(0, 10, 0, 22)
+                DLbl.BackgroundTransparency = 1
+                DLbl.Font = Enum.Font.Gotham
+                DLbl.TextSize = 10
+                DLbl.TextColor3 = Color3.fromRGB(150, 140, 130)
+                DLbl.TextXAlignment = Enum.TextXAlignment.Left
+                DLbl.Text = lDesc
+            end
+        end
+
+        return TabObj
+    end
+
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if not gpe and input.KeyCode == ToggleKey then
+            MainFrame.Visible = not MainFrame.Visible
+        end
+    end)
+
+    return WindowObj
+end
+
+-- ── 7. INITIALIZE HUB WINDOW ─────────────────────────────────
+local KeyAvatarURL = (getgenv and getgenv().KeyAvatar) or ("rbxthumb://type=AvatarHeadShot&id=" .. tostring(LocalPlayer.UserId) .. "&w=150&h=150")
+
+local Window = Library:Window({
+    Profile = {
+        Username = (getgenv and getgenv().KeyUsername) or LocalPlayer.DisplayName,
+        Email = "UID: " .. tostring(LocalPlayer.UserId),
+        AvatarUrl = KeyAvatarURL
+    },
+    Title = "Project XINZ X - Hoops Hub",
+    Desc = "Basketball Automation & Knit Suite",
+    Theme = "Dark",
+    Config = {
+        Keybind = Enum.KeyCode.RightShift
+    }
+})
+
+-- Tabs Setup
+local OffenseTab  = Window:Tab({ Title = "Offense" })
+local DefenseTab  = Window:Tab({ Title = "Defense" })
+local MovementTab = Window:Tab({ Title = "Movement" })
+local InfoTab     = Window:Tab({ Title = "Info" })
+
+-- แท็บ Offense
+OffenseTab:Section({ Title = "Ball Automation" })
+
+OffenseTab:Toggle({
+    Title = "Auto TP Get Ball",
+    Desc = "วาร์ปไปทับตำแหน่งลูกบาสว่างทันที (Instant TP)",
+    Value = Config.AutoGetBall,
+    Callback = function(v) Config.AutoGetBall = v end
+})
+
+OffenseTab:Toggle({
+    Title = "Ball ESP",
+    Desc = "แสดงออร่าและระยะห่างของลูกบาสทะลุกำแพง",
+    Value = Config.BallESP,
+    Callback = function(v)
+        Config.BallESP = v
+        pcall(updateBallESP)
+    end
+})
+
+OffenseTab:Dropdown({
+    Title = "Get Ball Mode",
+    List = { "TP (Instant)", "Fly" },
+    Default = Config.GetBallMode == "TP" and "TP (Instant)" or "Fly",
+    Callback = function(choice)
+        Config.GetBallMode = choice:find("TP") and "TP" or "Fly"
+    end
+})
+
+OffenseTab:Slider({
+    Title = "Fly Speed",
+    Min = 20,
+    Max = 120,
+    Default = Config.FlySpeed,
+    Callback = function(v) Config.FlySpeed = v end
+})
+
+OffenseTab:Section({ Title = "Shooting & Actions" })
+
+OffenseTab:Toggle({
+    Title = "Instant Shoot",
+    Desc = "เปิดใช้งานระบบ Instant Shoot (วาร์ปไปสูงเหนือห่วงและปล่อยดิ่งลงตาข่าย 100%)",
+    Value = Config.InstantShoot,
+    Callback = function(v)
+        Config.InstantShoot = v
+        Config.AutoPerfectShoot = v
+    end
+})
+
+OffenseTab:Toggle({
+    Title = "Auto Shoot on Possess",
+    Desc = "สั่งชู้ตอัตโนมัติทันทีเมื่อลูกบาสเข้ามาอยู่ในมือเรา",
+    Value = Config.AutoShoot,
+    Callback = function(v) Config.AutoShoot = v end
+})
+
+OffenseTab:Toggle({
+    Title = "Double Click Shoot",
+    Desc = "ชู้ตแบบจำลองคลิก 2 ครั้ง (ช่วยให้ออกท่าชู้ตแน่นอน 100%)",
+    Value = Config.DoubleClickShoot,
+    Callback = function(v) Config.DoubleClickShoot = v end
+})
+
+OffenseTab:Slider({
+    Title = "Teleport Height (Studs)",
+    Min = 3,
+    Max = 30,
+    Default = math.floor(Config.TeleportHeight or 9),
+    Callback = function(v)
+        Config.TeleportHeight = v
+    end
+})
+
+OffenseTab:Slider({
+    Title = "Click Hold Duration (ms)",
+    Min = 20,
+    Max = 1000,
+    Default = math.floor((Config.ClickHoldTime or 0.12) * 1000),
+    Callback = function(v)
+        Config.ClickHoldTime = v / 1000
+    end
+})
+
+OffenseTab:Toggle({
+    Title = "Auto Face Net on Shoot",
+    Desc = "หันหน้าเข้าแป้นอัตโนมัติเมื่อชู้ต (ปิดไว้ถ้าอยากยิงแบบหันหลัง)",
+    Value = Config.AutoFaceNet,
+    Callback = function(v) Config.AutoFaceNet = v end
+})
+
+OffenseTab:Button({
+    Title = "Instant Shoot Now [Hotkey: E / F]",
+    Desc = "จำลองการคลิกชู้ต + วาร์ปลูกบาสไปสูงเหนือห่วงแล้วปล่อยดิ่งลงตาข่าย 100%",
+    Callback = function() executePerfectShot() end
+})
+
+OffenseTab:Button({
+    Title = "Auto TP Dunk",
+    Desc = "วาร์ปไปใต้แป้นบาสอัตโนมัติแล้วเทคตัวดังก์ทันที",
+    Callback = function()
+        if not (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then return end
+        if not (BallController and BallController.LocalPlayerPossessesBall and BallController:LocalPlayerPossessesBall()) then return end
+        
+        local myRoot = LocalPlayer.Character.HumanoidRootPart
+        local hoop = getNearestHoop()
+        
+        if hoop then
+            local floorY = myRoot.Position.Y
+            local targetPos = Vector3.new(hoop.Position.X, floorY, hoop.Position.Z)
+            myRoot.CFrame = CFrame.new(targetPos, Vector3.new(hoop.Position.X, floorY, hoop.Position.Z))
+            myRoot.Velocity = Vector3.new(0, 0, 0)
+            
+            task.wait(0.04)
+            if LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+            
+            task.wait(0.06)
+            if BallController and BallController.Dunk then
+                pcall(function() BallController:Dunk() end)
+            end
+        end
+    end
+})
+
+OffenseTab:Button({
+    Title = "Safe Dribble",
+    Desc = "สั่งเลี้ยงบอลและสับขาหลอกเฉพาะตอนถือบอล",
+    Callback = function()
+        if not (BallController and BallController.LocalPlayerPossessesBall and BallController:LocalPlayerPossessesBall()) then return end
+        if BallController and BallController.Dribble then
+            pcall(function() BallController:Dribble() end)
+        end
+    end
+})
+
+OffenseTab:Button({
+    Title = "Face Net",
+    Callback = function()
+        if AbilityController and AbilityController.LookingAtNet then pcall(function() AbilityController:LookingAtNet() end) end
+    end
+})
+
+OffenseTab:Button({
+    Title = "Instant Awakening",
+    Callback = function()
+        if AwakeningController and AwakeningController.Input then pcall(function() AwakeningController:Input() end) end
+    end
+})
+
+-- แท็บ Defense
+DefenseTab:Section({ Title = "Auto Defense" })
+
+DefenseTab:Toggle({
+    Title = "Auto Block",
+    Desc = "บล็อกลูกยิงศัตรูอัตโนมัติ (ไม่บล็อกทีมเรา)",
+    Value = Config.AutoBlock,
+    Callback = function(v) Config.AutoBlock = v end
+})
+
+DefenseTab:Slider({
+    Title = "Block Range",
+    Min = 6,
+    Max = 30,
+    Default = Config.AutoBlockRange,
+    Callback = function(v) Config.AutoBlockRange = v end
+})
+
+DefenseTab:Toggle({
+    Title = "Auto Steal",
+    Desc = "ขโมยบอลจากศัตรูในระยะ",
+    Value = Config.AutoSteal,
+    Callback = function(v) Config.AutoSteal = v end
+})
+
+DefenseTab:Slider({
+    Title = "Steal Range",
+    Min = 6,
+    Max = 30,
+    Default = Config.AutoStealRange,
+    Callback = function(v) Config.AutoStealRange = v end
+})
+
+DefenseTab:Button({
+    Title = "Force Block",
+    Desc = "กดบล็อกฉุกเฉิน 1 ครั้ง",
+    Callback = function()
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+        if DefenseController and DefenseController.Input then
+            pcall(function() DefenseController:Input("Block") end)
+        end
+    end
+})
+
+-- แท็บ Movement
+MovementTab:Section({ Title = "Movement & Speed" })
+
+MovementTab:Toggle({
+    Title = "WalkSpeed Boost",
+    Desc = "เปิดใช้งานความเร็ววิ่งพิเศษ (ทำงานทุกแมพ)",
+    Value = Config.SpeedEnabled,
+    Callback = function(v)
+        Config.SpeedEnabled = v
+        if not v and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = 16
+        end
+    end
+})
+
+MovementTab:Dropdown({
+    Title = "Speed Mode",
+    List = { "Hybrid (Recommended)", "CFrame (Bypass 100%)", "Velocity (Smooth)", "WalkSpeed (Standard)" },
+    Default = "Hybrid (Recommended)",
+    Callback = function(choice)
+        if choice:find("CFrame") then
+            Config.SpeedMethod = "CFrame"
+        elseif choice:find("Velocity") then
+            Config.SpeedMethod = "Velocity"
+        elseif choice:find("WalkSpeed") then
+            Config.SpeedMethod = "WalkSpeed"
+        else
+            Config.SpeedMethod = "Hybrid"
+        end
+    end
+})
+
+MovementTab:Slider({
+    Title = "Speed Amount",
+    Min = 16,
+    Max = 120,
+    Default = Config.CustomSpeed,
+    Callback = function(v) Config.CustomSpeed = v end
+})
+
+MovementTab:Toggle({
+    Title = "Infinite Jump",
+    Desc = "กระโดดกลางอากาศได้ต่อเนื่อง",
+    Value = Config.InfJump,
+    Callback = function(v) Config.InfJump = v end
+})
+
+MovementTab:Toggle({
+    Title = "Noclip",
+    Desc = "เดินทะลุกำแพงและสิ่งกีดขวาง",
+    Value = Config.Noclip,
+    Callback = function(v) Config.Noclip = v end
+})
+
+-- แท็บ Info
+InfoTab:Section({ Title = "Hub Information" })
+InfoTab:Label({ Title = "Game:", Desc = "Basketball / Hoops" })
+InfoTab:Label({ Title = "Engine:", Desc = "Knit Controller Full Integration" })
+InfoTab:Label({ Title = "UI Version:", Desc = "100% Native Standalone (Loadstring-Free)" })
+InfoTab:Label({ Title = "Hotkeys:", Desc = "Right Shift = Toggle UI\nDelete = Panic Button" })
+
+-- Hotkeys (E / F = Instant Shoot, Delete = Panic)
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe then
+        if input.KeyCode == Enum.KeyCode.E or input.KeyCode == Enum.KeyCode.F then
+            if Config.InstantShoot or Config.AutoPerfectShoot then
+                executePerfectShot()
+            end
+        elseif input.KeyCode == Enum.KeyCode.Delete then
+            Config.AutoGetBall = false
+            Config.AutoBlock = false
+            Config.AutoSteal = false
+            Config.BallESP = false
+            Config.SpeedEnabled = false
+            Config.InfJump = false
+            Config.Noclip = false
+            Config.AutoShoot = false
+            pcall(updateBallESP)
+            Window:Notify({ Title = "PANIC ACTIVATED", Desc = "ปิดการทำงานทุกโปรฉุกเฉิน", Time = 3 })
+        end
+    end
+end)
+
+env.BasketballXINZ_Cleanup = function()
+    if renderConn then renderConn:Disconnect() end
+    if steppedConn then steppedConn:Disconnect() end
+end
+
+-- Anti-AFK
+if Config.AntiAFK then
+    LocalPlayer.Idled:Connect(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.zero)
+    end)
+end
+
+Window:Notify({
+    Title = "Project XINZ X Loaded",
+    Desc = "Basketball Hub Clean Standalone พร้อมใช้งานแล้ว!\nRight Shift = Toggle UI",
+    Time = 5
+})
+
+print("Project XINZ X - Basketball Hub (Clean UI) Loaded Successfully!")
