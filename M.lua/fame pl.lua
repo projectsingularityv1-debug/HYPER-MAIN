@@ -51,67 +51,86 @@ end
 local Library = nil
 local env = (getgenv and getgenv()) or _G
 
+local env = (getgenv and getgenv()) or _G
+local Library
 if env.HYPER_UI and type(env.HYPER_UI) == "table" and env.HYPER_UI.Window then
     Library = env.HYPER_UI
 elseif env.Library and type(env.Library) == "table" and env.Library.Window then
     Library = env.Library
 else
-    local ok, res = pcall(function()
-        -- 1. Local files first (0ms, offline support)
-        if typeof(isfile) == "function" and typeof(readfile) == "function" then
-            local paths = {
-                "ui.lua",
-                "UI.main/ui.lua",
-                "Scripts/UI.main/ui.lua",
-                "Scripts/ui.lua",
-                "HYPER_Cache/ui.lua"
-            }
-            for _, p in ipairs(paths) do
-                if isfile(p) then
-                    local fn = loadstring(readfile(p))
+    local function cleanLua(str)
+        if type(str) ~= "string" then return "" end
+        return str:gsub("^98791", ""):gsub("^%s+", "")
+    end
+
+    -- 1. Try local files first (0ms, offline support)
+    if typeof(isfile) == "function" and typeof(readfile) == "function" then
+        local paths = {
+            "ui.lua",
+            "UI.main/ui.lua",
+            "Scripts/UI.main/ui.lua",
+            "Scripts/ui.lua",
+            "HYPER_Cache/ui.lua"
+        }
+        for _, p in ipairs(paths) do
+            if isfile(p) then
+                local content = cleanLua(readfile(p))
+                if #content > 50 then
+                    local fn, compileErr = loadstring(content)
                     if fn then
-                        local lib = fn()
-                        if type(lib) == "table" and lib.Window then return lib end
+                        local ok, lib = pcall(fn)
+                        if ok and type(lib) == "table" and lib.Window then
+                            Library = lib
+                            env.HYPER_UI = lib
+                            env.Library = lib
+                            break
+                        end
                     end
                 end
             end
         end
+    end
 
-        -- 2. Online endpoints with fallback
+    -- 2. Online endpoints with fallback
+    if not Library then
         local urls = {
             "https://raw.githubusercontent.com/projectsingularityv1-debug/HYPER-LOADER/refs/heads/main/UI.main/ui.lua",
-            "https://raw.githubusercontent.com/projectsingularityv1-debug/HYPER-LOADER/refs/heads/main/UI.main/ui.lua"
+            "https://raw.githubusercontent.com/projectsingularityv1-debug/HYPER-MAIN/refs/heads/main/ui.lua"
         }
+        local req = (request or http_request or (syn and syn.request) or (http and http.request))
         for _, u in ipairs(urls) do
             local s, src = pcall(function()
-                local req = (request or http_request or (syn and syn.request) or (http and http.request))
                 if req then
                     local r = req({ Url = u, Method = "GET" })
-                    if r and r.StatusCode == 200 then return r.Body end
+                    if r and (r.StatusCode == 200 or r.Status == 200) and r.Body and #r.Body > 50 then return r.Body end
                 end
                 return game:HttpGet(u)
             end)
-            if s and src and #src > 0 then
-                local fn = loadstring(src)
+            if s and src and type(src) == "string" and #src > 50 then
+                src = cleanLua(src)
+                local fn, compileErr = loadstring(src)
                 if fn then
-                    local lib = fn()
-                    if type(lib) == "table" and lib.Window then
+                    local ok, lib = pcall(fn)
+                    if ok and type(lib) == "table" and lib.Window then
                         if typeof(writefile) == "function" then
                             pcall(function() writefile("HYPER_Cache/ui.lua", src) end)
                         end
-                        return lib
+                        Library = lib
+                        env.HYPER_UI = lib
+                        env.Library = lib
+                        break
+                    elseif not ok then
+                        warn("[HYPER HUB] UI Runtime Error: " .. tostring(lib))
                     end
+                elseif compileErr then
+                    warn("[HYPER HUB] UI Compile Error: " .. tostring(compileErr))
                 end
             end
         end
-        return nil
-    end)
+    end
 
-    if ok and type(res) == "table" and res.Window then
-        Library = res
-        env.HYPER_UI = Library
-    else
-        error("[Singularity] Failed to load UI Library from all local and remote endpoints!")
+    if not Library or not Library.Window then
+        error("[HYPER HUB] Failed to load UI Library from all local and remote endpoints!")
     end
 end
 local UIS = game:GetService("UserInputService")
