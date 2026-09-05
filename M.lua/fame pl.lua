@@ -177,7 +177,7 @@ local Window = Library:Window({
 
     Title = "Fame PL Hub",
     Desc = "Auto Farm Bandit Leader",
-    Icon = "rbxassetid://136264753381080",
+    Icon = "https://img2.pic.in.th/HYPER.png",
     Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift,

@@ -131,7 +131,7 @@ local Window = Library:Window({
     },
     Title = "HYPER HUB",
     Desc = "Zero RPG Bypass",
-    Icon = "rbxassetid://136264753381080",
+    Icon = "https://img2.pic.in.th/HYPER.png",
     Version = "1.0",
     Theme = "Dark",
     Config = {

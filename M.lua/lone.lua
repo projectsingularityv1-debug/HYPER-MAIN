@@ -2324,7 +2324,7 @@ function Library:Window(p)
 	local Title = p.Title or 'null'
 	local Desc = p.Desc or ''
 	local Version = p.Version or '1.0'
-	local Icon = p.Icon or "rbxassetid://136264753381080"
+	local Icon = p.Icon or "https://img2.pic.in.th/HYPER.png"
 	local Theme = p.Theme or 'Dark'
 	local Keybind = p.Config.Keybind or Enum.KeyCode.LeftControl
 	local Size = p.Config.Size or UDim2.new(0, 530,0, 400)
@@ -6108,7 +6108,7 @@ function Library:Window(p)
 		ImageLabel_1.BorderSizePixel = 0
 		ImageLabel_1.Position = UDim2.new(0.5, 0,0.5, 0)
 		ImageLabel_1.Size = UDim2.new(0, 100,0, 100)
-		ImageLabel_1.Image = "rbxassetid://136264753381080"
+		ImageLabel_1.Image = "https://img2.pic.in.th/HYPER.png"
 		ImageLabel_1.ImageTransparency = 1
 
 		UICorner_1.Parent = SizeFrame
@@ -6131,7 +6131,7 @@ function Library:Window(p)
 				}}):Play()
 				Minisize_1.Image = "rbxassetid://13857981896"
 			else
-				Minisize_1.Image = "rbxassetid://136264753381080"
+				Minisize_1.Image = "https://img2.pic.in.th/HYPER.png"
 				tw({v = Shadow_1, t = 0.15, s = Enum.EasingStyle.Exponential, d = "Out", g = {
 					Size = originalSize,
 					Position = originalPosition
@@ -6168,7 +6168,7 @@ function Library:Window(p)
 				tw({v = Shadow_1, t = 0.05, s = Enum.EasingStyle.Exponential, d = "Out", g = {Size = nZ}}):Play()
 				tw({v = SizeFrame, t = 0.15, s = Enum.EasingStyle.Linear, d = "Out", g = {BackgroundTransparency = 0.6}}):Play()
 				tw({v = ImageLabel_1, t = 0.15, s = Enum.EasingStyle.Linear, d = "Out", g = {ImageTransparency = 0}}):Play()
-				ImageLabel_1.Image = 'rbxassetid://136264753381080'	
+				ImageLabel_1.Image = "https://img2.pic.in.th/HYPER.png"	
 			elseif isZ and R and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 				tw({v = SizeFrame, t = 0.15, s = Enum.EasingStyle.Linear, d = "Out", g = {BackgroundTransparency = 0.6}}):Play()
 				tw({v = ImageLabel_1, t = 0.15, s = Enum.EasingStyle.Linear, d = "Out", g = {ImageTransparency = 0}}):Play()
