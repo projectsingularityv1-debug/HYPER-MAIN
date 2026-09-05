@@ -138,7 +138,7 @@ local Window = Library:Window({
 
     Title = "LK AUTO",
     Desc = "Quest Auto Farm",
-    Icon = 115975178132422,
+    Icon = "rbxassetid://136264753381080",
     Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift,

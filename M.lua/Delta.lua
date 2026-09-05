@@ -628,7 +628,7 @@ local Window = Library:Window({
     },
     Title = "Project Delta Hub",
     Desc = "Tactical Survival & Looting Suite",
-    Icon = 115975178132422,
+    Icon = "rbxassetid://136264753381080",
     Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift,

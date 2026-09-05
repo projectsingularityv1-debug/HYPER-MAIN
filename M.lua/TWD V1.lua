@@ -1271,7 +1271,7 @@ local Window = Library:Window({
     },
     Title = "TWD V1 Hub",
     Desc = "Zombie Apocalypse All-in-One",
-    Icon = 115975178132422,
+    Icon = "rbxassetid://136264753381080",
     Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift,

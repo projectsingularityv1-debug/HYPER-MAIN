@@ -292,7 +292,7 @@ local Window = Library:Window({
 
     Title = "HYPER HUB",
     Desc = "Murder Mystery 2",
-    Icon = 115975178132422,
+    Icon = "rbxassetid://136264753381080",
     Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift,
