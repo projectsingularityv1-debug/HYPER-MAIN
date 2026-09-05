@@ -251,7 +251,7 @@ local Window = Library:Window({
     Title = "HYPER HUB",
     Desc = "Auto Bank Robbery",
     Version = "1.0",
-    Icon = 115975178132422,
+    Icon = "https://img2.pic.in.th/HYPER.png",
     Theme = "Dark",
     Config = {
         Keybind = Enum.KeyCode.RightShift,
@@ -429,13 +429,13 @@ local function SaveConfig()
     end)
 end
 
-local FarmTab = Window:Tab({ Title = "Auto Farm", Icon = "zap" })
-local PlayerTab = Window:Tab({ Title = "Player", Icon = "user" })
-local ESPTab = Window:Tab({ Title = "ESP", Icon = "eye" })
-local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "crosshair" })
-local WhitelistTab = Window:Tab({ Title = "Whitelist", Icon = "shield" })
-local TeleportTab = Window:Tab({ Title = "Teleport", Icon = "navigation" })
-local SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings" })
+local FarmTab = Window:Tab({ Title = "Auto Farm", Icon = "https://img2.pic.in.th/HYPER.png" })
+local PlayerTab = Window:Tab({ Title = "Player", Icon = "https://img2.pic.in.th/HYPER.png" })
+local ESPTab = Window:Tab({ Title = "ESP", Icon = "https://img2.pic.in.th/HYPER.png" })
+local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "https://img2.pic.in.th/HYPER.png" })
+local WhitelistTab = Window:Tab({ Title = "Whitelist", Icon = "https://img2.pic.in.th/HYPER.png" })
+local TeleportTab = Window:Tab({ Title = "Teleport", Icon = "https://img2.pic.in.th/HYPER.png" })
+local SettingsTab = Window:Tab({ Title = "Settings", Icon = "https://img2.pic.in.th/HYPER.png" })
 
 -- ============================================
 -- AUTO SERVER HOP & TELEPORT PERSISTENCE

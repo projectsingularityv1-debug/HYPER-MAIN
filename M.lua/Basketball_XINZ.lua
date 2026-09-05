@@ -1040,13 +1040,13 @@ local Window = Library:Window({
     }
 })
 -- Tabs Setup
-local OffenseTab  = Window:Tab({ Title = "Offense",  Icon = "crosshair" })
-local DefenseTab  = Window:Tab({ Title = "Defense",  Icon = "shield" })
-local MovementTab = Window:Tab({ Title = "Movement", Icon = "gauge" })
-local InfoTab     = Window:Tab({ Title = "Info",     Icon = "info" })
+local OffenseTab  = Window:Tab({ Title = "Offense",  Icon = "https://img2.pic.in.th/HYPER.png" })
+local DefenseTab  = Window:Tab({ Title = "Defense",  Icon = "https://img2.pic.in.th/HYPER.png" })
+local MovementTab = Window:Tab({ Title = "Movement", Icon = "https://img2.pic.in.th/HYPER.png" })
+local InfoTab     = Window:Tab({ Title = "Info",     Icon = "https://img2.pic.in.th/HYPER.png" })
 
 -- Offense Tab
-OffenseTab:Section({ Title = "Ball Automation", Icon = "basketball" })
+OffenseTab:Section({ Title = "Ball Automation", Icon = "https://img2.pic.in.th/HYPER.png" })
 
 OffenseTab:Toggle({
     Title = "Auto TP Get Ball",
@@ -1082,7 +1082,7 @@ OffenseTab:Slider({
     Callback = function(v) Config.FlySpeed = v end
 })
 
-OffenseTab:Section({ Title = "Shooting & Actions", Icon = "crosshair" })
+OffenseTab:Section({ Title = "Shooting & Actions", Icon = "https://img2.pic.in.th/HYPER.png" })
 
 OffenseTab:Toggle({
     Title = "Instant Shoot",
@@ -1171,7 +1171,7 @@ OffenseTab:Button({
 })
 
 OffenseTab:Button({
-    Title = "Safe Dribble", Icon = "basketball",
+    Title = "Safe Dribble", Icon = "https://img2.pic.in.th/HYPER.png",
     Desc = "Perform dribble and crossovers only while possessing ball",
     Callback = function()
         if not (BallController and BallController.LocalPlayerPossessesBall and BallController:LocalPlayerPossessesBall()) then return end
@@ -1196,7 +1196,7 @@ OffenseTab:Button({
 })
 
 -- Defense Tab
-DefenseTab:Section({ Title = "Auto Defense", Icon = "shield-check" })
+DefenseTab:Section({ Title = "Auto Defense", Icon = "https://img2.pic.in.th/HYPER.png" })
 
 DefenseTab:Toggle({
     Title = "Auto Block",
@@ -1229,7 +1229,7 @@ DefenseTab:Slider({
 })
 
 DefenseTab:Button({
-    Title = "Force Block", Icon = "shield",
+    Title = "Force Block", Icon = "https://img2.pic.in.th/HYPER.png",
     Desc = "Perform a single emergency block jump",
     Callback = function()
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
@@ -1242,7 +1242,7 @@ DefenseTab:Button({
 })
 
 -- Movement Tab
-MovementTab:Section({ Title = "Movement & Speed", Icon = "gauge" })
+MovementTab:Section({ Title = "Movement & Speed", Icon = "https://img2.pic.in.th/HYPER.png" })
 
 MovementTab:Toggle({
     Title = "WalkSpeed Boost",
@@ -1296,7 +1296,7 @@ MovementTab:Toggle({
 })
 
 -- Info Tab
-InfoTab:Section({ Title = "Hub Information", Icon = "info" })
+InfoTab:Section({ Title = "Hub Information", Icon = "https://img2.pic.in.th/HYPER.png" })
 InfoTab:Label({ Title = "Game:", Desc = "Basketball / Hoops" })
 InfoTab:Label({ Title = "Engine:", Desc = "Knit Controller Full Integration" })
 InfoTab:Label({ Title = "UI Version:", Desc = "100% Native Standalone (Loadstring-Free)" })
