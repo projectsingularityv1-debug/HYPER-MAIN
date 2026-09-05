@@ -287,6 +287,8 @@ local DefaultConfig = {
     GhostFlyNoclip = true,
     GodmodeEnabled = false,
     AntiFallDamage = true,
+    AutoArmor = false,
+    AutoArmorInterval = 10,
 
     -- ESP
     BankESP = false,
@@ -353,6 +355,8 @@ local function LoadConfig()
     getgenv().GhostFlyNoclip = ConfigState.GhostFlyNoclip
     getgenv().GodmodeEnabled = ConfigState.GodmodeEnabled
     getgenv().AntiFallDamage = ConfigState.AntiFallDamage
+    getgenv().AutoArmor = ConfigState.AutoArmor or false
+    getgenv().AutoArmorInterval = ConfigState.AutoArmorInterval or 10
     
     getgenv().BankESP = ConfigState.BankESP
     getgenv().PlayerESP = ConfigState.PlayerESP
@@ -391,6 +395,8 @@ local function SaveConfig()
             ConfigState.GhostFlyNoclip = getgenv().GhostFlyNoclip
             ConfigState.GodmodeEnabled = getgenv().GodmodeEnabled
             ConfigState.AntiFallDamage = getgenv().AntiFallDamage
+            ConfigState.AutoArmor = getgenv().AutoArmor
+            ConfigState.AutoArmorInterval = getgenv().AutoArmorInterval
 
             ConfigState.BankESP = getgenv().BankESP
             ConfigState.PlayerESP = getgenv().PlayerESP
@@ -717,6 +723,179 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
     task.wait(0.5)
     if getgenv().GodmodeEnabled then
         applyGodmode(newChar)
+    end
+    if getgenv().AutoArmor then
+        task.wait(0.5)
+        getArmor(true)
+    end
+end)
+
+-- ============================================
+-- AUTO ARMOR SYSTEM
+-- ============================================
+getgenv().AutoArmor = false
+getgenv().AutoArmorInterval = 10
+
+local armorCFrame = CFrame.new(-1439.97827, -81.8992996, 204.404205, 0, 0, -1, 0, 1, 0, 1, 0, 0)
+local isGettingArmor = false
+
+local function getArmorPrompt()
+    local prompt = nil
+    -- 1. Try exact path specified: workspace.OtherItems:GetChildren()[180].Belt.Giver.ProximityPrompt
+    pcall(function()
+        local otherItems = workspace:FindFirstChild("OtherItems")
+        if otherItems then
+            local children = otherItems:GetChildren()
+            local item180 = children[180]
+            if item180 then
+                local belt = item180:FindFirstChild("Belt")
+                local giver = belt and belt:FindFirstChild("Giver")
+                local p = giver and (giver:FindFirstChildOfClass("ProximityPrompt") or giver:FindFirstChild("ProximityPrompt"))
+                if p and p.Enabled then
+                    prompt = p
+                end
+            end
+        end
+    end)
+    if prompt then return prompt end
+
+    -- 2. Dynamic search across all items in OtherItems for Belt.Giver.ProximityPrompt
+    pcall(function()
+        local otherItems = workspace:FindFirstChild("OtherItems")
+        if otherItems then
+            for _, item in ipairs(otherItems:GetChildren()) do
+                local belt = item:FindFirstChild("Belt")
+                if belt then
+                    local giver = belt:FindFirstChild("Giver")
+                    if giver then
+                        local p = giver:FindFirstChildOfClass("ProximityPrompt") or giver:FindFirstChild("ProximityPrompt")
+                        if p and p.Enabled then
+                            prompt = p
+                            return
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    if prompt then return prompt end
+
+    -- 3. Position-based search near target armor CFrame
+    pcall(function()
+        local targetPos = Vector3.new(-1439.97827, -81.8992996, 204.404205)
+        local container = workspace:FindFirstChild("OtherItems") or workspace
+        for _, desc in ipairs(container:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") and desc.Enabled then
+                local parent = desc.Parent
+                if parent and parent:IsA("BasePart") then
+                    if (parent.Position - targetPos).Magnitude <= 35 then
+                        prompt = desc
+                        return
+                    end
+                end
+            end
+        end
+    end)
+    return prompt
+end
+
+local function firePromptInstant(prompt)
+    if not prompt then return end
+    local oldHold = prompt.HoldDuration
+    prompt.HoldDuration = 0
+    if fireproximityprompt then
+        fireproximityprompt(prompt, 0)
+    else
+        prompt:InputHoldBegin()
+        task.wait(0.05)
+        prompt:InputHoldEnd()
+    end
+    task.wait(0.1)
+    prompt.HoldDuration = oldHold
+end
+
+local function getArmor(silent)
+    if isGettingArmor then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    isGettingArmor = true
+    local origCFrame = hrp.CFrame
+
+    local success = false
+    pcall(function()
+        -- 1. Warp to armor giver location
+        hrp.Velocity = Vector3.zero
+        hrp.RotVelocity = Vector3.zero
+        hrp.CFrame = armorCFrame
+        task.wait(0.12)
+
+        -- 2. Press E with 0 cooldown (like robbery prompt)
+        local prompt = getArmorPrompt()
+        if prompt then
+            firePromptInstant(prompt)
+            success = true
+        else
+            -- Proximity sweep near character
+            for _, desc in ipairs(workspace:GetDescendants()) do
+                if desc:IsA("ProximityPrompt") and desc.Enabled and desc.Parent and desc.Parent:IsA("BasePart") then
+                    if (desc.Parent.Position - hrp.Position).Magnitude <= (desc.MaxActivationDistance + 5) then
+                        firePromptInstant(desc)
+                        success = true
+                        break
+                    end
+                end
+            end
+        end
+
+        task.wait(0.1)
+
+        -- 3. Warp back to original position
+        if hrp and hrp.Parent then
+            hrp.CFrame = origCFrame
+            hrp.Velocity = Vector3.zero
+            hrp.RotVelocity = Vector3.zero
+        end
+    end)
+
+    isGettingArmor = false
+
+    if not silent then
+        if success then
+            Window:Notify({Title = "Armor", Desc = "Equipped armor & returned to origin", Time = 3})
+        else
+            Window:Notify({Title = "Armor", Desc = "Warped & returned (Armor prompt not found or on cooldown)", Time = 3})
+        end
+    end
+end
+
+-- Auto Armor background monitor
+task.spawn(function()
+    while true do
+        task.wait(getgenv().AutoArmorInterval or 10)
+        if getgenv().AutoArmor then
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if char and hum and hum.Health > 0 and not isGettingArmor then
+                local hasBelt = char:FindFirstChild("Belt") or char:FindFirstChild("Armor") or char:FindFirstChild("Vest")
+                local armorVal = char:FindFirstChild("Armor") or char:FindFirstChild("ArmorValue")
+                local needArmor = false
+
+                if armorVal and armorVal:IsA("ValueBase") then
+                    if armorVal.Value <= 0 then
+                        needArmor = true
+                    end
+                elseif not hasBelt then
+                    needArmor = true
+                end
+
+                if needArmor then
+                    getArmor(true)
+                end
+            end
+        end
     end
 end)
 
@@ -1283,6 +1462,41 @@ PlayerTab:Toggle({
     end
 })
 
+PlayerTab:Toggle({
+    Title = "Auto Armor",
+    Desc = "Auto warp to get armor (0s cooldown) and return when missing",
+    Image = "shield-check",
+    Value = getgenv().AutoArmor,
+    Callback = function(val)
+        getgenv().AutoArmor = val
+        SaveConfig()
+        if val then
+            getArmor(false)
+        end
+    end
+})
+
+PlayerTab:Button({
+    Title = "Get Armor Now",
+    Desc = "Warp to Belt Giver, press E (0s cooldown) & warp back to origin",
+    Callback = function()
+        getArmor(false)
+    end
+})
+
+PlayerTab:Slider({
+    Title = "Auto Armor Check Interval",
+    Desc = "How often to check and re-equip armor (seconds)",
+    Min = 5,
+    Max = 60,
+    Default = getgenv().AutoArmorInterval or 10,
+    Value = getgenv().AutoArmorInterval or 10,
+    Callback = function(val)
+        getgenv().AutoArmorInterval = val
+        SaveConfig()
+    end
+})
+
 -- ============================================
 -- ESP TAB CONTROLS
 -- ============================================
@@ -1445,6 +1659,18 @@ TeleportTab:Button({
             end
         else
             Window:Notify({Title = "Teleport", Desc = "Target character not found", Time = 3})
+        end
+    end
+})
+
+TeleportTab:Button({
+    Title = "Teleport To Armor Giver",
+    Desc = "Teleport directly to armor belt giver",
+    Callback = function()
+        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = armorCFrame
+            Window:Notify({Title = "Teleport", Desc = "Teleported to Armor Giver", Time = 3})
         end
     end
 })
