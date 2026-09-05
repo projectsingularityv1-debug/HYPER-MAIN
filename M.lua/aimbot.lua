@@ -765,12 +765,12 @@ local Window = Library:Window({
 })
 
 -- Tabs Setup
-local AimbotTab = Window:Tab({ Title = "Aimbot" })
-local WhitelistTab = Window:Tab({ Title = "Whitelist" })
-local ESPTab = Window:Tab({ Title = "ESP & Visuals" })
-local PowersTab = Window:Tab({ Title = "Player & Mods" })
-local SecurityTab = Window:Tab({ Title = "Anti-Cheat" })
-local UserTab = Window:Tab({ Title = "Info" })
+local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "crosshair" })
+local WhitelistTab = Window:Tab({ Title = "Whitelist", Icon = "users" })
+local ESPTab = Window:Tab({ Title = "ESP & Visuals", Icon = "eye" })
+local PowersTab = Window:Tab({ Title = "Player & Mods", Icon = "user" })
+local SecurityTab = Window:Tab({ Title = "Anti-Cheat", Icon = "shield" })
+local UserTab = Window:Tab({ Title = "Info", Icon = "info" })
 
 -- 1. AIMBOT TAB
 AimbotTab:Section({ Title = "Aimbot Settings" })
