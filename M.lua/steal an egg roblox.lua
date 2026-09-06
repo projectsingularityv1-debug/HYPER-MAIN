@@ -111,11 +111,13 @@ local ZoneOrder = {
 
 local State = {
     SelectedZone = "Home",
-    TweenSpeed = 180,
+    TweenSpeed = 110,       -- ความเร็วทางตรง (ช้าลง นุ่มนวล ไม่โดนดีดกลับ)
+    AscendSpeed = 380,      -- ความเร็วพุ่งขึ้นฟ้า (พุ่งขึ้นไวทันใจ)
+    DescendSpeed = 220,     -- ความเร็วร่อนลงเป้าหมาย
     TweenHeight = 160,
     IsTweening = false,
     CurrentTween = nil,
-    GodMode = false,
+    GodMode = true, -- Auto-enabled on script execution
     Noclip = false,
     InfJump = false,
     GodHeartbeat = nil,
@@ -150,83 +152,169 @@ local function getHumanoid()
 end
 
 -- ==============================================================================
--- // God Mode Handler
+-- // Auto God Mode / Health Lock (setupGodState Engine)
 -- ==============================================================================
-local function applyGodMode(char)
-    if not State.GodMode then return end
-    char = char or getCharacter()
-    if not char then return end
+local H = RunService or game:GetService("RunService")
+local R = H.RenderStepped
+local RE = H.RenderStepped.Wait
 
-    local hum = char:WaitForChild("Humanoid", 5)
-    if not hum then return end
+local currentCharacter = nil
+local currentHumanoid = nil
+local godConnections = {}
 
-    -- 1. Disable dead state & joints break
-    hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-    hum.BreakJointsOnDeath = false
+local function cleanupGodConnections()
+    for _, conn in ipairs(godConnections) do
+        if typeof(conn) == "RBXScriptConnection" and conn.Connected then
+            conn:Disconnect()
+        end
+    end
+    table.clear(godConnections)
+end
 
+local function restoreHealth(hum)
+    if not hum or not hum.Parent then return end
     pcall(function()
-        hum.MaxHealth = math.huge
-        hum.Health = math.huge
-    end)
-
-    hum.StateChanged:Connect(function(_, state)
-        if State.GodMode and state == Enum.HumanoidStateType.Dead then
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-            pcall(function()
-                hum.MaxHealth = math.huge
-                hum.Health = math.huge
-            end)
+        if hum.MaxHealth < 100 then
+            hum.MaxHealth = 100
         end
-    end)
-
-    if State.GodHeartbeat then State.GodHeartbeat:Disconnect() end
-    State.GodHeartbeat = RunService.Heartbeat:Connect(function()
-        if not State.GodMode then
-            if State.GodHeartbeat then State.GodHeartbeat:Disconnect() State.GodHeartbeat = nil end
-            return
-        end
-        if not char or not char.Parent or not hum or not hum.Parent then return end
-
-        if hum.Health < hum.MaxHealth or hum.Health <= 0 then
-            pcall(function()
-                hum.MaxHealth = math.huge
-                hum.Health = math.huge
-            end)
-        end
-        if hum:GetState() == Enum.HumanoidStateType.Dead then
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
+        hum.Health = hum.MaxHealth
     end)
 end
+
+local function setupGodState(character)
+    if not character then return end
+    local oldHumanoid = character:WaitForChild("Humanoid", 5) or character:FindFirstChildOfClass("Humanoid")
+    if not oldHumanoid then return end
+
+    cleanupGodConnections()
+
+    -- 0. Recreate / Clone Humanoid ตัวใหม่ (ตัดขาดจากระบบดาเมจและการตายของเซิร์ฟเวอร์ - โหมดอมตะเดิม)
+    local humanoid = oldHumanoid
+    if not oldHumanoid:GetAttribute("IsGodHumanoid") then
+        local ok, cloned = pcall(function()
+            local newHum = oldHumanoid:Clone()
+            newHum.Name = "Humanoid"
+            newHum:SetAttribute("IsGodHumanoid", true)
+            newHum.Parent = character
+            oldHumanoid:Destroy()
+            return newHum
+        end)
+
+        if ok and cloned then
+            humanoid = cloned
+
+            -- รีเซ็ตกล้อง (CameraSubject) ให้จับที่ Humanoid ตัวใหม่ทันที
+            pcall(function()
+                local camera = Workspace.CurrentCamera or workspace.CurrentCamera
+                if camera then
+                    camera.CameraSubject = humanoid
+                end
+            end)
+
+            -- รีเฟรช Animate Script เพื่อให้ท่าทางการเดินเล่นได้อย่างสมบูรณ์
+            pcall(function()
+                local animate = character:FindFirstChild("Animate")
+                if animate and animate:IsA("LocalScript") then
+                    animate.Disabled = true
+                    task.wait(0.05)
+                    animate.Disabled = false
+                end
+            end)
+        end
+    end
+
+    currentCharacter = character
+    currentHumanoid = humanoid
+
+    -- 1. ป้องกันข้อต่อหลุดเมื่อตัวละครโดนดาเมจ
+    humanoid.BreakJointsOnDeath = false
+
+    -- 2. ปิด State การตาย
+    pcall(function()
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+    end)
+
+    restoreHealth(humanoid)
+
+    -- 3. ดักจับเมื่อสถานะเปลี่ยนเป็น Dead ให้บังคับเปลี่ยนเป็น GettingUp
+    local stateConn = humanoid.StateChanged:Connect(function(_, state)
+        if State.GodMode and state == Enum.HumanoidStateType.Dead then
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+            restoreHealth(humanoid)
+        end
+    end)
+    table.insert(godConnections, stateConn)
+
+    -- 4. ตรวจสอบและล็อคสถานะทุกเฟรม (Heartbeat)
+    local heartbeatConn = H.Heartbeat:Connect(function()
+        if not State.GodMode then return end
+        if not character or not character.Parent or not humanoid or not humanoid.Parent then
+            return
+        end
+
+        if humanoid:GetState() == Enum.HumanoidStateType.Dead then
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+
+        if humanoid.Health < humanoid.MaxHealth or humanoid.Health <= 0 then
+            restoreHealth(humanoid)
+        end
+    end)
+    table.insert(godConnections, heartbeatConn)
+
+    -- 5. เติมเลือดระดับเฟรมภาพ (RenderStepped)
+    local renderConn = H.RenderStepped:Connect(function()
+        if not State.GodMode then return end
+        if not character or not character.Parent or not humanoid or not humanoid.Parent then
+            return
+        end
+        if humanoid.Health < humanoid.MaxHealth then
+            humanoid.Health = humanoid.MaxHealth
+        end
+    end)
+    table.insert(godConnections, renderConn)
+end
+
+-- ลูปตรวจสอบเพิ่มเติมใน Background Thread
+task.spawn(function()
+    while true do
+        if State.GodMode and currentHumanoid and currentHumanoid.Parent then
+            if currentHumanoid.Health < currentHumanoid.MaxHealth then
+                currentHumanoid.Health = currentHumanoid.MaxHealth
+            end
+        end
+        RE(R)
+    end
+end)
+
+-- ทำงานกับตัวละครปัจจุบันทันทีที่รันสคริปต์
+if LocalPlayer.Character then
+    task.spawn(setupGodState, LocalPlayer.Character)
+end
+
+-- ทำงานอัตโนมัติทุกครั้งที่เกิดใหม่ (Respawn)
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.2)
+    setupGodState(char)
+end)
 
 local function toggleGodMode(enabled)
     State.GodMode = enabled
     if enabled then
-        applyGodMode()
-        notify("GOD MODE", "God Mode activated! Health and death states locked.", "rbxassetid://10709791437", 3)
-    else
-        if State.GodHeartbeat then
-            State.GodHeartbeat:Disconnect()
-            State.GodHeartbeat = nil
+        if LocalPlayer.Character then
+            setupGodState(LocalPlayer.Character)
         end
-        local hum = getHumanoid()
-        if hum then
-            hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+        notify("GOD MODE", "Recreate Humanoid God Mode Active", "rbxassetid://10709791437", 2.5)
+    else
+        cleanupGodConnections()
+        if currentHumanoid then
             pcall(function()
-                hum.MaxHealth = 100
-                hum.Health = 100
+                currentHumanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
             end)
         end
-        notify("GOD MODE", "God Mode disabled.", "rbxassetid://10709791437", 3)
+        notify("GOD MODE", "God Mode Disabled", "rbxassetid://10709791437", 2.5)
     end
 end
-
-LocalPlayer.CharacterAdded:Connect(function(char)
-    task.wait(0.5)
-    if State.GodMode then
-        applyGodMode(char)
-    end
-end)
 
 -- ==============================================================================
 -- // Noclip Handler
@@ -292,10 +380,11 @@ local function flyToTarget(targetPos, onFinished)
         local currentPos = hrp.Position
         local skyY = State.TweenHeight -- Default 160
 
-        -- Stage 1: Ascend to sky altitude (160)
+        -- Stage 1: Ascend rapidly to sky altitude (160) - พุ่งขึ้นฟ้าอย่างรวดเร็ว
         local startSkyPos = Vector3.new(currentPos.X, skyY, currentPos.Z)
         local dist1 = math.abs(skyY - currentPos.Y)
-        local time1 = math.clamp(dist1 / (State.TweenSpeed * 0.9), 0.2, 2.5)
+        local ascendSpeed = State.AscendSpeed or 380
+        local time1 = math.clamp(dist1 / ascendSpeed, 0.05, 3.0)
 
         local tInfo1 = TweenInfo.new(time1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
         State.CurrentTween = TweenService:Create(hrp, tInfo1, { CFrame = CFrame.new(startSkyPos) })
@@ -304,10 +393,11 @@ local function flyToTarget(targetPos, onFinished)
 
         if not State.IsTweening then if bv then bv:Destroy() end return end
 
-        -- Stage 2: Fly across the sky at altitude 160
+        -- Stage 2: Smooth straight flight across the sky (ทางตรง)
         local targetSkyPos = Vector3.new(targetPos.X, skyY, targetPos.Z)
         local dist2 = (Vector3.new(startSkyPos.X, 0, startSkyPos.Z) - Vector3.new(targetSkyPos.X, 0, targetSkyPos.Z)).Magnitude
-        local time2 = math.clamp(dist2 / State.TweenSpeed, 0.4, 60)
+        local straightSpeed = State.TweenSpeed or 110
+        local time2 = math.clamp(dist2 / straightSpeed, 0.08, 90)
 
         local tInfo2 = TweenInfo.new(time2, Enum.EasingStyle.Linear)
         State.CurrentTween = TweenService:Create(hrp, tInfo2, { CFrame = CFrame.new(targetSkyPos) })
@@ -318,7 +408,8 @@ local function flyToTarget(targetPos, onFinished)
 
         -- Stage 3: Descend smoothly to the zone target
         local dist3 = math.abs(skyY - targetPos.Y)
-        local time3 = math.clamp(dist3 / (State.TweenSpeed * 0.9), 0.2, 2.5)
+        local descendSpeed = State.DescendSpeed or 220
+        local time3 = math.clamp(dist3 / descendSpeed, 0.05, 3.0)
 
         local tInfo3 = TweenInfo.new(time3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
         State.CurrentTween = TweenService:Create(hrp, tInfo3, { CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0)) })
@@ -342,12 +433,21 @@ local function teleportDirect(targetPos)
 end
 
 -- ==============================================================================
--- // Infinite Jump
+-- // Jump Controller (Fixes Jump on Cloned Humanoid + Infinite Jump)
 -- ==============================================================================
 UserInputService.JumpRequest:Connect(function()
+    local hum = currentHumanoid or getHumanoid()
+    if not hum or not hum.Parent then return end
+
     if State.InfJump then
-        local hum = getHumanoid()
-        if hum then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    else
+        hum.Jump = true
+        local state = hum:GetState()
+        if state == Enum.HumanoidStateType.Running 
+           or state == Enum.HumanoidStateType.RunningNoPhysics 
+           or state == Enum.HumanoidStateType.Landed 
+           or hum.FloorMaterial ~= Enum.Material.Air then
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
         end
     end
@@ -397,7 +497,7 @@ MainTab:Button({
     Callback = function()
         local pos = Zones[State.SelectedZone]
         if pos then
-            notify("Flying to " .. State.SelectedZone, "Altitude: " .. tostring(State.TweenHeight) .. " | Speed: " .. tostring(State.TweenSpeed), "rbxassetid://10709790948", 2.5)
+            notify("Flying to " .. State.SelectedZone, "Alt: " .. tostring(State.TweenHeight) .. " | Straight: " .. tostring(State.TweenSpeed) .. " | Ascend: " .. tostring(State.AscendSpeed), "rbxassetid://10709790948", 2.5)
             flyToTarget(pos, function()
                 notify("Arrived!", "Successfully reached " .. State.SelectedZone, "rbxassetid://10709791437", 2.5)
             end)
@@ -426,13 +526,13 @@ MainTab:Button({
     end
 })
 
-MainTab:Section({ Title = "Flight Physics Adjustments" })
+MainTab:Section({ Title = "Flight Physics & Speed Adjustments" })
 
 MainTab:Slider({
-    Title = "Flight Speed",
-    Desc = "Adjust speed for flying and tweening (default: 180)",
-    Min = 50,
-    Max = 450,
+    Title = "Straight Flight Speed (ทางตรง)",
+    Desc = "Cruise speed during straight flight (default: 110 | Max: 1200)",
+    Min = 20,
+    Max = 1200,
     Value = State.TweenSpeed,
     Callback = function(val)
         State.TweenSpeed = val
@@ -440,10 +540,32 @@ MainTab:Slider({
 })
 
 MainTab:Slider({
-    Title = "Flight Altitude Height",
-    Desc = "Height during cruise stage (default: 160)",
-    Min = 80,
-    Max = 300,
+    Title = "Ascend Launch Speed (พุ่งขึ้นฟ้า)",
+    Desc = "Fast launch speed when ascending (default: 380 | Max: 1500)",
+    Min = 50,
+    Max = 1500,
+    Value = State.AscendSpeed,
+    Callback = function(val)
+        State.AscendSpeed = val
+    end
+})
+
+MainTab:Slider({
+    Title = "Descend Landing Speed (ร่อนลงพื้น)",
+    Desc = "Smooth descent speed to target zone (default: 220 | Max: 1000)",
+    Min = 50,
+    Max = 1000,
+    Value = State.DescendSpeed,
+    Callback = function(val)
+        State.DescendSpeed = val
+    end
+})
+
+MainTab:Slider({
+    Title = "Flight Altitude Height (ความสูงเพดานบิน)",
+    Desc = "Height during cruise stage (default: 160 | Max: 500)",
+    Min = 50,
+    Max = 500,
     Value = State.TweenHeight,
     Callback = function(val)
         State.TweenHeight = val
@@ -475,8 +597,8 @@ local PlayerTab = Window:Tab({ Title = "Player & GodMode", Icon = "rbxassetid://
 PlayerTab:Section({ Title = "Invincibility & Protection" })
 
 PlayerTab:Toggle({
-    Title = "God Mode (Invincible)",
-    Desc = "Locks health to max and suppresses death states",
+    Title = "God Mode (Recreate Humanoid)",
+    Desc = "Clone Humanoid & sever server damage link (Old God Mode)",
     Value = State.GodMode,
     Callback = function(val)
         toggleGodMode(val)
@@ -505,26 +627,59 @@ PlayerTab:Section({ Title = "Speed & Jump Modifications" })
 
 PlayerTab:Slider({
     Title = "Walk Speed",
-    Desc = "Adjust character walking speed",
+    Desc = "Adjust character walking speed (default: 16 | Max: 500)",
     Min = 16,
-    Max = 250,
+    Max = 500,
     Value = 16,
     Callback = function(val)
         State.WalkSpeed = val
-        local hum = getHumanoid()
+        local hum = currentHumanoid or getHumanoid()
         if hum then hum.WalkSpeed = val end
+    end
+})
+
+PlayerTab:Button({
+    Title = "Egg Safe Runner Speed (35 studs/s)",
+    Desc = "Safe running speed that prevents server speed-check from resetting the egg",
+    Callback = function()
+        State.WalkSpeed = 35
+        local hum = currentHumanoid or getHumanoid()
+        if hum then hum.WalkSpeed = 35 end
+        notify("SPEED PRESET", "WalkSpeed set to 35 (Safe for Egg Delivery)! Run to base on ground.", "rbxassetid://10709791437", 3)
+    end
+})
+
+PlayerTab:Button({
+    Title = "Egg Fast Runner Speed (60 studs/s)",
+    Desc = "Faster ground speed for returning",
+    Callback = function()
+        State.WalkSpeed = 60
+        local hum = currentHumanoid or getHumanoid()
+        if hum then hum.WalkSpeed = 60 end
+        notify("SPEED PRESET", "WalkSpeed set to 60! Run to base on ground.", "rbxassetid://10709791437", 3)
+    end
+})
+
+PlayerTab:Button({
+    Title = "Reset Normal Speed (16 studs/s)",
+    Desc = "Resets walking speed back to Roblox default (16)",
+    Callback = function()
+        State.WalkSpeed = 16
+        local hum = currentHumanoid or getHumanoid()
+        if hum then hum.WalkSpeed = 16 end
+        notify("SPEED PRESET", "WalkSpeed reset to 16 (Normal).", "rbxassetid://10709791437", 2)
     end
 })
 
 PlayerTab:Slider({
     Title = "Jump Power",
-    Desc = "Adjust character jumping power",
+    Desc = "Adjust character jumping power (default: 50 | Max: 600)",
     Min = 50,
-    Max = 350,
+    Max = 600,
     Value = 50,
     Callback = function(val)
         State.JumpPower = val
-        local hum = getHumanoid()
+        local hum = currentHumanoid or getHumanoid()
         if hum then
             hum.UseJumpPower = true
             hum.JumpPower = val
@@ -535,7 +690,7 @@ PlayerTab:Slider({
 -- Maintain WalkSpeed/JumpPower after respawn
 RunService.Heartbeat:Connect(function()
     if State.WalkSpeed ~= 16 or State.JumpPower ~= 50 then
-        local hum = getHumanoid()
+        local hum = currentHumanoid or getHumanoid()
         if hum then
             if State.WalkSpeed ~= 16 and hum.WalkSpeed ~= State.WalkSpeed then
                 hum.WalkSpeed = State.WalkSpeed
@@ -583,4 +738,4 @@ SettingsTab:Button({
     end
 })
 
-notify("HYPER HUB LOADED", "Steal an Egg Roblox script initialized successfully!", "rbxassetid://10709791437", 4)
+notify("HYPER HUB LOADED", "Steal an Egg Roblox loaded! Auto God Mode is ACTIVE.", "rbxassetid://10709791437", 4)

@@ -1,3 +1,48 @@
+-- ==============================================================================
+-- Cali Shootout • Feature List
+-- [ MAIN AUTO FARM ]
+-- + Auto Rob Bank (Smart Detection & Laser Disabler)
+-- + Fast Collect (Instant E / 0s Proximity Prompt Bypass)
+-- + Auto Server Hop (Cooldown Detection & Auto Queue)
+-- + Server Hop Now (Instant Active Server Finder)
+-- + Adjustable Auto Rob Fly Speed
+-- 
+-- [ COMBAT & AIMBOT ]
+-- + Smooth Camera Aimbot (Prediction & Lerp System)
+-- + Hitbox Part Selection: Head, Torso, Arms, Legs, Random
+-- + Raycast Wall Check & Team Check Bypass
+-- + Dynamic FOV Circle & Filled Area Display
+-- + Player Whitelist System (Add / Remove / Clear / Ignore)
+-- 
+-- [ PLAYER & DEFENSE ]
+-- + Ghost Fly (6-Axis Manual Flight with WASD + Space/Shift [Key: X])
+-- + Ghost Fly Noclip (Full Object Collision Bypass)
+-- + Godmode & Anti-Ragdoll Protection
+-- + Anti Fall Damage (Zero Impact Damage)
+-- + Auto Armor (Auto Warp to Belt Giver & Return)
+-- + Instant Get Armor (0s Cooldown Bypass)
+-- + Adjustable Auto Armor Check Interval
+-- 
+-- [ VISUALS & ESP ]
+-- + Bank Status ESP (Ready, Robbing, Cooldown & Distance)
+-- + Player ESP Master Toggle
+-- + Player Name & Real-time Health ESP (Bar + Number)
+-- + Inventory / Weapon Tool Icons ESP (Equipped & Backpack Badges)
+-- + Distance ESP & Tracer Lines (Bottom Screen)
+-- + 2D Box ESP & 3D Character Highlight Modes
+-- + Customizable ESP Color Palette (8 Colors)
+-- 
+-- [ TELEPORTS & EXPLOITS ]
+-- + Teleport to Player (Online Dropdown Selector)
+-- + Teleport to Armor Giver (Belt Machine)
+-- + Orbit & Attack (Adjustable Speed, Distance & Auto Tool Attack)
+-- 
+-- [ SYSTEM & CONFIG ]
+-- + Auto Config Save & Disk Sync (JSON Manager)
+-- + Queue On Teleport (Seamless Persistence across Hops)
+-- + Modern HYPER HUB Dark UI (Mobile & PC Adaptive)
+-- ==============================================================================
+
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
